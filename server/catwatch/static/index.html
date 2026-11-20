@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Catwatch</title>
+<style>
+:root{color-scheme:light dark;--bg:#fafafa;--fg:#1d1d1f;--card:#fff;--line:#0002;--ac:#e8890c}
+@media(prefers-color-scheme:dark){:root{--bg:#111113;--fg:#eee;--card:#1b1b1f;--line:#fff2}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui;background:var(--bg);color:var(--fg)}
+main{max-width:960px;margin:0 auto;padding:1rem}
+nav{display:flex;gap:.25rem;border-bottom:1px solid var(--line);padding:.5rem 1rem;position:sticky;top:0;background:var(--bg);overflow-x:auto}
+nav button{border:0;background:none;color:inherit;padding:.5rem .9rem;border-radius:8px;font:inherit;cursor:pointer}
+nav button.on{background:var(--ac);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;margin:0 0 1rem}
+table{border-collapse:collapse;width:100%}td,th{padding:.45rem;border-bottom:1px solid var(--line);text-align:left}
+input,select,button.b{font:inherit;padding:.45rem .6rem;border-radius:8px;border:1px solid var(--line);background:var(--card);color:inherit}
+button.b{cursor:pointer;background:var(--ac);color:#fff;border:0}button.b.g{background:none;color:inherit;border:1px solid var(--line)}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}
+img,canvas{width:100%;border-radius:8px;display:block}.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.5rem 0}
+.on{} .dot{display:inline-block;width:.6em;height:.6em;border-radius:50%;background:#2a2;margin-right:.3em}.dot.off{background:#c33}
+.vis{display:grid;grid-template-columns:200px 1fr;gap:1rem}@media(max-width:560px){.vis{grid-template-columns:1fr}}.th{border-radius:8px;cursor:zoom-in;aspect-ratio:4/3;object-fit:cover}.ph{display:grid;place-items:center;background:#8883;opacity:.6}.spin{display:inline-block;width:1em;height:1em;border:2px solid var(--line);border-top-color:var(--ac);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-.15em}@keyframes sp{to{transform:rotate(360deg)}}progress{vertical-align:middle;margin-left:.5rem}.alert{border-color:#ff9f0a;background:#ff9f0a22}.alert.error{border-color:#ff453a;background:#ff453a22}.big{font-size:2rem;font-weight:700}.muted{opacity:.6}
+</style>
+<nav id=nav></nav><main id=m></main>
+<script>
+const $=s=>document.querySelector(s), KL={litter:'Caixa de areia',food:'Comida',water:'Água'};
+let TOKEN=localStorage.tok||'', tab=localStorage.tab||'hoje', timer;
+const q=u=>u+(u.includes('?')?'&':'?')+'token='+encodeURIComponent(TOKEN);
+async function api(u,o={}){o.headers={...(o.headers||{}),'X-Token':TOKEN};
+ const r=await fetch(u,o);if(r.status==401){login();throw 0}if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail||r.status);return r.json()}
+function login(){const t=prompt('Token de acesso (aparece no terminal do servidor):');if(t){TOKEN=t;localStorage.tok=t;go()}}
+const tabs={hoje:'Hoje',cams:'Câmeras',gatos:'Gatos',hist:'Histórico'};
+function go(t){clearInterval(timer);tab=t||tab;localStorage.tab=tab;
+ $('#nav').innerHTML=Object.entries(tabs).map(([k,v])=>`<button class="${k==tab?'on':''}" onclick="go('${k}')">${v}</button>`).join('');
+ ({hoje,cams,gatos,hist})[tab]().catch(e=>{if(e)$('#m').innerHTML='<p>Erro: '+e.message+'</p>'})}
+async function hoje(){
+ const draw=async()=>{const d=await api('/api/today'),c={};d.forEach(x=>(c[x.cat]??={})[x.kind]=x.n);
+  const st=await api('/api/stats?days=7'),mid=new Date();mid.setHours(0,0,0,0);
+  const al=await api('/api/events?type=alert&since='+Math.floor(mid/1000)).catch(()=>[]);
+  $('#m').innerHTML=al.reverse().map(a=>`<div class="card alert ${a.level}">⚠️ ${a.message} <span class=muted>${new Date(a.ts*1000).toLocaleTimeString().slice(0,5)}</span></div>`).join('')+'<div class=g2>'+(Object.entries(c).map(([k,v])=>`<div class=card><b>${k}</b><div class=row>
+   <div>🚽<div class=big>${v.litter||0}</div></div><div>🍽️<div class=big>${v.food||0}</div></div><div>💧<div class=big>${v.water||0}</div></div></div></div>`).join('')||'<p class=muted>Nenhuma visita hoje ainda.</p>')+'</div>'
+   +'<div class=card><b>Últimos 7 dias</b><table><tr><th>Dia<th>Gato<th>Caixa<th>Comida<th>Água</tr>'+rows(st)+'</table></div>'};
+ await draw();timer=setInterval(draw,5000)}
+function rows(st){const m={};st.forEach(x=>{const k=x.day+'|'+x.cat;(m[k]??={})[x.kind]=x.n});
+ return Object.entries(m).reverse().map(([k,v])=>{const[d,c]=k.split('|');return`<tr><td>${d}<td>${c}<td>${v.litter||0}<td>${v.food||0}<td>${v.water||0}</tr>`}).join('')}
+const lvl=x=>x==null?'—':x>=.85?'alta':x>=.75?'média':'baixa';
+async function hist(){
+ const r=await api('/api/recent?limit=200');
+ $('#m').innerHTML=r.length?r.map(x=>{const dur=Math.round(x.end-x.start),votes=Object.entries(x.votes||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+' '+v).join(' · ');
+  return `<div class=card><div class=vis>${x.photo?`<img class=th src="${q('/api/visits/'+x.id+'/photo')}" onclick="zoom(this.src)">`:'<div class="th ph">sem foto</div>'}
+  <div><b>${KL[x.kind]} — ${x.cat}</b><div class=muted>${new Date(x.start*1000).toLocaleString()} · ${dur}s · câmera ${x.camera} · zona ${x.zone}</div>
+  ${x.frames?`<div>Certeza: <b>${x.score==null?'—':x.score.toFixed(2)}</b> (${lvl(x.score)})${x.conf?` · detecção ${x.conf.toFixed(2)}`:''}</div>
+  <div class=muted>${x.frames} quadros · votos: ${votes||'—'}</div>`:'<div class=muted>Visita antiga: sem foto nem certeza registradas</div>'}
+  <div class=row><button class="b g" onclick="fix(${x.id})">trocar gato</button> <button class="b g" onclick="del(${x.id})">apagar</button></div></div></div></div>`}).join(''):'<p class=muted>Sem visitas ainda.</p>'}
+function zoom(src){const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:#000d;display:grid;place-items:center;z-index:9;cursor:zoom-out';
+ d.innerHTML=`<img src="${src}" style="max-width:95vw;max-height:95vh;width:auto">`;d.onclick=()=>d.remove();document.body.append(d)}
+async function fix(id){const c=prompt('Qual gato era?');if(c){await api('/api/visits/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({cat:c})});hist()}}
+async function del(id){if(confirm('Apagar essa visita?')){await api('/api/visits/'+id,{method:'DELETE'});hist()}}
+async function gatos(){
+ const c=await api('/api/cats'),cams=await api('/api/cameras');
+ $('#m').innerHTML='<div class=g2>'+c.map(x=>`<div class=card><img src="${q('/api/cats/'+encodeURIComponent(x.name)+'/thumb')}" onerror="this.style.display='none'"><b>${x.name}</b>
+  <span class=muted>${x.photos} fotos ${x.photos<15?'(ideal: 15+)':''}</span>
+  <div class=row><button class="b g" onclick="cadCam('${x.name}')">📷 foto da câmera</button><button class="b g" onclick="rmCat('${x.name}')">apagar</button></div></div>`).join('')+'</div>'
+  +`<div class=card><b>Cadastrar gato / adicionar fotos</b><div class=row><input id=cn placeholder="nome do gato">
+  <input id=cf type=file accept="image/*" multiple><button class=b id=ub onclick=upl()>Enviar</button></div><div id=us class=muted></div>
+  <p class=muted>Dica: 15–30 fotos de ângulos e luzes diferentes, incluindo perto da caixa e do comedouro.</p></div>`;
+ window._cams=cams}
+async function upl(){const n=$('#cn').value,fs=$('#cf').files;if(!n||!fs.length)return alert('Informe nome e fotos');
+ const b=$('#ub'),st=$('#us');b.disabled=true;let ok=0,err='';
+ for(let i=0;i<fs.length;i++){st.innerHTML=`<span class=spin></span> Processando ${i+1} de ${fs.length}… <progress max=${fs.length} value=${i}></progress>`;
+  const fd=new FormData();fd.append('photo',fs[i]);try{await api('/api/cats/'+encodeURIComponent(n)+'/photos',{method:'POST',body:fd});ok++}catch(e){err=e.message}}
+ b.disabled=false;st.textContent=err?`${ok} enviadas; erro: ${err}`:`${ok} fotos enviadas`;setTimeout(gatos,1200)}
+async function cadCam(n){const cs=window._cams.map(c=>c.name);const c=prompt('De qual câmera? '+cs.join(', '),cs[0]);
+ if(c){try{await api(`/api/cats/${encodeURIComponent(n)}/from-camera/${encodeURIComponent(c)}`,{method:'POST'});gatos()}catch(e){alert(e.message)}}}
+async function rmCat(n){if(confirm('Apagar '+n+' e todas as fotos?')){await api('/api/cats/'+encodeURIComponent(n),{method:'DELETE'});gatos()}}
+
+let zc, zones=[], cur=[], zcam;
+async function cams(){
+ const cs=await api('/api/cameras');
+ $('#m').innerHTML='<div class=g2>'+cs.map(c=>`<div class=card><img src="${q('/stream/'+encodeURIComponent(c.name))}">
+  <div><span class="dot ${c.online?'':'off'}"></span><b>${c.name}</b> <span class=muted>${c.zones.length} zonas</span></div>
+  <div class=row><button class="b g" onclick='edit(${JSON.stringify(c.name)})'>editar zonas</button><button class="b g" onclick='rmCam(${JSON.stringify(c.name)})'>remover</button></div></div>`).join('')+'</div>'
+  +`<div class=card><b>Adicionar câmera</b><div class=row><input id=an placeholder="nome (ex: cozinha)"><input id=as size=36 placeholder="rtsp://… | http://ip:8080/video | 0 | push"><button class=b onclick=addCam()>Adicionar</button></div>
+  <p class=muted>Celular: instale "IP Webcam" (Android) e use http://IP:8080/video. Ou use o app Catwatch no celular com source "push".</p></div><div id=ed></div>`;
+ window._c=cs}
+async function addCam(){try{await api('/api/cameras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('#an').value,source:$('#as').value})});cams()}catch(e){alert(e.message)}}
+async function rmCam(n){if(confirm('Remover '+n+'?')){await api('/api/cameras/'+encodeURIComponent(n),{method:'DELETE'});cams()}}
+function edit(name){zcam=name;zones=JSON.parse(JSON.stringify(window._c.find(c=>c.name==name).zones));cur=[];
+ $('#ed').innerHTML=`<div class=card><b>Zonas de ${name}</b><p class=muted>Clique na imagem para marcar os cantos da área; depois "fechar zona".</p>
+  <canvas id=zc></canvas><div class=row><input id=zn placeholder="nome da zona"><select id=zk><option value=litter>Caixa de areia<option value=food>Comida<option value=water>Água</select>
+  <button class="b g" onclick=closeZone()>fechar zona</button><button class="b g" onclick="cur=[];draw()">limpar pontos</button></div>
+  <div id=zl></div><button class=b onclick=saveZones()>Salvar zonas</button></div>`;
+ const img=new Image();img.onload=()=>{zc=$('#zc');zc.width=img.width;zc.height=img.height;zc._img=img;zc.onclick=e=>{const r=zc.getBoundingClientRect();
+  cur.push([(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]);draw()};draw()};
+ img.src=q('/snapshot/'+encodeURIComponent(name)+'.jpg?raw=true&t='+Date.now());$('#ed').scrollIntoView()}
+function draw(){const c=zc.getContext('2d'),W=zc.width,H=zc.height;c.drawImage(zc._img,0,0);
+ const poly=(p,col,close)=>{c.beginPath();p.forEach(([x,y],i)=>i?c.lineTo(x*W,y*H):c.moveTo(x*W,y*H));if(close)c.closePath();c.strokeStyle=col;c.lineWidth=Math.max(2,W/320);c.stroke();if(close){c.fillStyle=col+'44';c.fill()}
+  p.forEach(([x,y])=>{c.beginPath();c.arc(x*W,y*H,W/160+2,0,7);c.fillStyle=col;c.fill()})};
+ zones.forEach(z=>poly(z.polygon,'#ffa000',true));if(cur.length)poly(cur,'#00e5ff',false);
+ $('#zl').innerHTML=zones.map((z,i)=>`<div class=row>${z.name} <span class=muted>(${KL[z.kind]})</span><button class="b g" onclick="zones.splice(${i},1);draw()">✕</button></div>`).join('')}
+function closeZone(){const n=$('#zn').value.trim();if(cur.length<3||!n)return alert('Marque 3+ pontos e dê um nome');zones.push({name:n,kind:$('#zk').value,polygon:cur});cur=[];$('#zn').value='';draw()}
+async function saveZones(){try{await api(`/api/cameras/${encodeURIComponent(zcam)}/zones`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(zones)});alert('Salvo!');cams()}catch(e){alert(e.message)}}
+if(!TOKEN)login();else go();
+</script>
+</html>

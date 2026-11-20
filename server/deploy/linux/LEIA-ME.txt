@@ -1,0 +1,33 @@
+CATWATCH — INSTALAÇÃO NO LINUX
+==============================
+
+    tar xzf catwatch-linux-*.tar.gz
+    cd catwatch-linux-*
+    ./install.sh
+
+O instalador:
+  • coloca o servidor em ~/.local/share/catwatch/server
+  • cria o ambiente Python (com o uv; ele oferece instalar se faltar)
+  • usa a placa de vídeo NVIDIA se houver; senão instala a versão para CPU (--cpu força)
+  • instala o app de PC: pacote no Arch/Omarchy/Manjaro; nos outros, compila com o Qt 6
+Precisa de internet: baixa o PyTorch (~1 GB na versão CPU, ~5 GB com CUDA).
+
+Levar seus gatos e histórico de outro PC:
+  no app antigo, aba Servidor → "Backup completo (.zip)"; depois:
+    ./install.sh --restore catwatch-backup-AAAAMMDD-HHMM.zip
+
+Depois de instalar: abra o Catwatch → "Iniciar o servidor deste PC" → aba Servidor
+→ leia o QR code com o app do celular.
+
+Atualizar: extraia a versão nova e rode ./install.sh de novo (dados mantidos).
+Desinstalar: ~/.local/share/catwatch/uninstall.sh
+  (--tudo apaga também os dados; --so-servidor mantém o app de PC)
+
+APP DE PC FORA DO ARCH (compilado pelo instalador)
+  Ubuntu/Debian:  sudo apt install build-essential qt6-base-dev qt6-declarative-dev \
+                    qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+                    qml6-module-qtquick-dialogs qml6-module-qtcore qml6-module-qtqml-workerscript \
+                    qml6-module-qtquick-templates qml6-module-qtquick-window libqt6svg6
+  Fedora:         sudo dnf install gcc-c++ make qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg
+  Depois rode ./install.sh de novo (ou ./install.sh --app-from-source).
+  Sem o app, o servidor tem um painel web em http://localhost:8000.

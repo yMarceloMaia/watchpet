@@ -135,8 +135,8 @@ QString ServerManager::defaultServerDir() {
     // Onde o install.sh coloca o servidor (~/.local/share/catwatch/server).
     candidates << QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/catwatch/server";
     const QString appDir = QCoreApplication::applicationDirPath();
-    candidates << QDir(appDir).filePath("../../pet") << QDir(appDir).filePath("../pet")
-               << QDir::home().filePath("projetos/meus/github/pet") << QDir::home().filePath("catwatch");
+    // No repositório (watchpet/desktop/build/catwatch): o servidor fica em watchpet/server.
+    candidates << QDir(appDir).filePath("../../server") << QDir(appDir).filePath("../server");
     for (const auto &c : candidates)
         if (QFileInfo::exists(QDir(c).filePath("catwatch/__main__.py")))
             return QDir(c).canonicalPath();

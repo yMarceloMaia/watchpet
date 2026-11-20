@@ -16,9 +16,9 @@ e liga o servidor. Alertas (gato sem beber água, excesso de idas à caixa, câm
 fora do ar) viram notificações do sistema.
 
 ## Servidor
-O app procura o projeto do servidor (`pet/`, com `catwatch/` e `.venv`) em
-`CATWATCH_SERVER_DIR`, ao lado do app ou em `~/projetos/meus/github/pet`; dá para
-escolher outra pasta na aba Servidor. Um servidor já rodando na porta (pelo
+O app procura o servidor (pasta com `catwatch/` e `.venv`) em `CATWATCH_SERVER_DIR`,
+em `~/.local/share/catwatch/server` (onde o `install.sh` instala) ou em `../server`
+(no repositório); dá para escolher outra pasta na aba Servidor. Um servidor já rodando na porta (pelo
 terminal ou systemd) é reconhecido e usado.
 
 ## Build

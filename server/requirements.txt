@@ -1,0 +1,12 @@
+opencv-python-headless
+ultralytics
+torch
+torchvision
+numpy
+pyyaml
+fastapi
+uvicorn
+python-multipart
+pytest
+qrcode
+psutil

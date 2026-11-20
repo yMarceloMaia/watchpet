@@ -1,0 +1,16 @@
+# Servidor sem o app de PC, iniciado pelo systemd do usuário. Os caminhos abaixo são os do
+# install.sh (~/.local/share/catwatch/server); ajuste se o servidor estiver em outra pasta.
+# Instale com: mkdir -p ~/.config/systemd/user && cp deploy/catwatch.service ~/.config/systemd/user/
+#              systemctl --user enable --now catwatch
+[Unit]
+Description=Catwatch server
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/.local/share/catwatch/server
+Environment=PYTHONPATH=%h/.local/share/catwatch/server
+ExecStart=%h/.local/share/catwatch/server/.venv/bin/python -m catwatch --data-dir %h/.local/share/catwatch/server
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

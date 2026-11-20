@@ -1,0 +1,44 @@
+# Copie para config.yaml (ou deixe o servidor criar um com os padrões na primeira execução).
+# Câmeras e zonas também podem ser criadas pelos apps.
+cameras:
+  - name: caixa
+    source: "rtsp://usuario:senha@192.168.0.50:554/stream1"   # câmera IP
+    zones:
+      # polígonos normalizados (0 a 1) em x,y; kind: litter | food | water
+      - {name: caixa de areia, kind: litter, polygon: [[0.1, 0.3], [0.9, 0.3], [0.9, 0.95], [0.1, 0.95]]}
+  - name: cozinha
+    source: "http://192.168.0.60:8080/video"                 # celular com o app IP Webcam
+    zones:
+      - {name: comedouro, kind: food, polygon: [[0.05, 0.5], [0.45, 0.5], [0.45, 0.95], [0.05, 0.95]]}
+      - {name: bebedouro, kind: water, polygon: [[0.55, 0.5], [0.95, 0.5], [0.95, 0.95], [0.55, 0.95]]}
+  # - {name: celular, source: push, zones: []}               # app Catwatch no celular, aba Câmera
+  # - {name: webcam, source: "0", zones: []}                 # webcam USB deste PC
+
+detection:
+  model: yolov8n.pt
+  confidence: 0.4
+  fps: 3
+  identify_threshold: 0.7
+  device: auto            # auto | cpu | cuda
+
+visits:                   # segundos; por tipo de zona
+  min_litter: 15
+  min_food: 8
+  min_water: 5
+  gap_litter: 30
+  gap_food: 15
+  gap_water: 10
+
+alerts:
+  enabled: true
+  camera_offline_minutes: 3
+  water_by_hour: 18
+  food_by_hour: 18
+  litter_max_hours: 24
+  litter_spike_factor: 2.0
+
+db: data/catwatch.db
+gallery: data/cats
+server:
+  host: 0.0.0.0
+  port: 8000
