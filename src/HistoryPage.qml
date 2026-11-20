@@ -108,7 +108,8 @@ ListView {
                 RowLayout {
                     spacing: T.s16
                     Label { text: new Date(row.v.start * 1000).toLocaleString(T.locale, "ddd d/M, HH:mm"); color: T.fog; font.features: { "tnum": 1 } }
-                    Label { text: Math.round(row.v.end - row.v.start) + " s"; color: T.fog; font.features: { "tnum": 1 } }
+                    // Presença: o tempo em que o gato foi visto de fato; visitas antigas só têm início e fim.
+                    Label { text: "ficou " + Math.round(row.v.presence ?? (row.v.end - row.v.start)) + " s"; color: T.fog; font.features: { "tnum": 1 } }
                     Label { text: row.v.camera + ", " + row.v.zone; color: T.fog; elide: Text.ElideRight; Layout.fillWidth: true }
                 }
                 // Certeza da identificação: barra e número.

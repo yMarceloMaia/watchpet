@@ -44,7 +44,7 @@ Item {
                 ToolTip.delay: 150
                 ToolTip.text: T.kindName[modelData.kind] + " às "
                               + new Date(modelData.start * 1000).toLocaleTimeString(T.locale, "HH:mm")
-                              + ", " + Math.round(modelData.end - modelData.start) + " s"
+                              + ", ficou " + Math.round(modelData.presence ?? (modelData.end - modelData.start)) + " s"
             }
         }
         Rectangle {

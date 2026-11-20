@@ -69,6 +69,26 @@ Flickable {
         }
         Label { text: parent.unit; color: T.fog; font.pixelSize: T.caption; wrapMode: Text.Wrap; Layout.preferredWidth: 128 }
     }
+    // Regra de um tipo de zona: quanto o gato precisa ficar e quanto tempo sumido encerra a visita.
+    component KindRule: RowLayout {
+        id: rule
+        property string kind
+        property alias minValue: minSpin.value
+        property alias gapValue: gapSpin.value
+        Layout.fillWidth: true
+        spacing: T.s16
+        // Um layout aninhado não se estica sozinho; o Item ocupa a coluna e a marca fica dentro.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: tag.implicitHeight
+            KindTag { id: tag; kind: rule.kind; anchors.verticalCenter: parent.verticalCenter }
+        }
+        SpinBox { id: minSpin; from: 1; to: 600; editable: true; Layout.preferredWidth: 144
+            textFromValue: (v, l) => String(v); valueFromText: (t, l) => parseInt(t) || 0 }
+        SpinBox { id: gapSpin; from: 2; to: 600; editable: true; Layout.preferredWidth: 144
+            textFromValue: (v, l) => String(v); valueFromText: (t, l) => parseInt(t) || 0 }
+        Item { Layout.preferredWidth: 128 - T.s16 * 2 }
+    }
     component Group: Label { color: T.fog; font.pixelSize: T.caption; font.weight: Font.Medium; Layout.topMargin: T.s8 }
 
     FolderDialog {
@@ -246,8 +266,10 @@ Flickable {
                         conf.value = Math.round(s.detection.confidence * 100)
                         thr.value = Math.round(s.detection.identify_threshold * 100)
                         device.currentIndex = Math.max(0, ["auto", "cpu", "cuda"].indexOf(s.detection.device))
-                        minSec.value = s.visits.min_seconds
-                        gapSec.value = s.visits.gap_seconds
+                        for (const [rule, k] of [[ruleLitter, "litter"], [ruleFood, "food"], [ruleWater, "water"]]) {
+                            rule.minValue = s.visits["min_" + k]
+                            rule.gapValue = s.visits["gap_" + k]
+                        }
                         alertsOn.checked = s.alerts.enabled
                         offMin.value = s.alerts.camera_offline_minutes
                         waterH.value = s.alerts.water_by_hour
@@ -276,8 +298,22 @@ Flickable {
                     }
 
                     Group { text: "Visitas" }
-                    Num { id: minSec; label: "Tempo mínimo na zona para contar"; from: 1; to: 120; unit: "segundos" }
-                    Num { id: gapSec; label: "Encerrar a visita sem ver o gato por"; from: 2; to: 300; unit: "segundos" }
+                    Label {
+                        text: "Uma visita só conta se o mesmo gato ficar na zona pelo tempo mínimo. Passadas rápidas não contam. "
+                              + "A visita acaba depois de um tempo sem ver o gato; na caixa ele some ao se agachar."
+                        color: T.fog; font.pixelSize: T.caption; wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: T.s16
+                        Item { Layout.fillWidth: true }
+                        Label { text: "Ficar ao menos (s)"; color: T.fog; font.pixelSize: T.caption; Layout.preferredWidth: 144 }
+                        Label { text: "Encerrar sem ver por (s)"; color: T.fog; font.pixelSize: T.caption; Layout.preferredWidth: 144 }
+                        Item { Layout.preferredWidth: 128 - T.s16 * 2 }
+                    }
+                    KindRule { id: ruleLitter; kind: "litter" }
+                    KindRule { id: ruleFood; kind: "food" }
+                    KindRule { id: ruleWater; kind: "water" }
 
                     Group { text: "Alertas" }
                     Switch { id: alertsOn; text: "Avisar sobre o comportamento dos gatos" }
@@ -301,7 +337,8 @@ Flickable {
                             text: "Salvar configurações"; icon_: "content-save"; primary: true
                             onClicked: backend.saveSettings({
                                 detection: { fps: fps.value, confidence: conf.value / 100, identify_threshold: thr.value / 100, device: device.currentValue },
-                                visits: { min_seconds: minSec.value, gap_seconds: gapSec.value },
+                                visits: { min_litter: ruleLitter.minValue, min_food: ruleFood.minValue, min_water: ruleWater.minValue,
+                                          gap_litter: ruleLitter.gapValue, gap_food: ruleFood.gapValue, gap_water: ruleWater.gapValue },
                                 alerts: { enabled: alertsOn.checked, camera_offline_minutes: offMin.value, water_by_hour: waterH.value,
                                           food_by_hour: foodH.value, litter_max_hours: litterH.value, litter_spike_factor: spike.value / 10 },
                                 server: { port: port.value }
