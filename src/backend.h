@@ -43,6 +43,7 @@ public:
     // Imagens: o token vai na query porque o QML Image não consegue mandar cabeçalhos.
     Q_INVOKABLE QString snapshotUrl(const QString &camera, int frame, bool raw = false) const;
     Q_INVOKABLE QString thumbUrl(const QString &cat, int revision) const;
+    Q_INVOKABLE QString photoUrl(int visitId) const;
 
     // Histórico
     Q_INVOKABLE void fixVisit(int id, const QString &cat);

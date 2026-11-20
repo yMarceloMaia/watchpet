@@ -382,27 +382,88 @@ ApplicationWindow {
             ListView {
                 clip: true
                 model: backend.recent
-                spacing: 1
+                spacing: 8
+                topMargin: 12; bottomMargin: 12
                 ScrollBar.vertical: ScrollBar {}
                 Label { anchors.centerIn: parent; visible: backend.recent.length === 0; text: "Sem visitas ainda."; opacity: .6 }
-                delegate: ItemDelegate {
+                delegate: Item {
                     id: visit
-                    width: ListView.view.width
-                    contentItem: RowLayout {
-                        spacing: 8
-                        Label {
-                            text: win.kinds[modelData.kind] + "  ·  " + modelData.cat + "  ·  " + Math.round(modelData.end - modelData.start) + "s  ·  " + modelData.camera
-                            Layout.fillWidth: true; elide: Text.ElideRight
+                    // Quão confiável é o nome: similaridade média dos quadros em que o gato foi reconhecido.
+                    readonly property string level: modelData.score === null || modelData.score === undefined ? "—"
+                        : modelData.score >= 0.85 ? "alta" : modelData.score >= 0.75 ? "média" : "baixa"
+                    readonly property string votes: {
+                        const v = modelData.votes || {}
+                        return Object.keys(v).sort((a, b) => v[b] - v[a]).map(k => k + " " + v[k]).join(" · ")
+                    }
+                    width: ListView.view.width - 32
+                    x: 16
+                    height: 116
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "#1b1b1f"; radius: theme.radius
+                        RowLayout {
+                            anchors { fill: parent; margins: 8 }
+                            spacing: 12
+                            Rectangle {
+                                Layout.preferredWidth: 134; Layout.preferredHeight: 100
+                                color: "#2a2a30"; radius: theme.radius; clip: true
+                                Image {
+                                    anchors.fill: parent
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    // Só busca a foto com a aba aberta; o cache do Qt evita rebaixar a cada atualização.
+                                    source: modelData.photo && tabs.currentIndex === 3 ? backend.photoUrl(modelData.id) : ""
+                                }
+                                Label { anchors.centerIn: parent; text: "sem foto"; opacity: .5; visible: !modelData.photo }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: modelData.photo
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: { preview.source = backend.photoUrl(modelData.id); preview.open() }
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label { text: win.kinds[modelData.kind] + "  —  " + modelData.cat; font.bold: true; font.pixelSize: 16; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { opacity: .6; elide: Text.ElideRight; Layout.fillWidth: true
+                                    text: new Date(modelData.start * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat) + "  ·  " + Math.round(modelData.end - modelData.start) + "s  ·  câmera " + modelData.camera + "  ·  zona " + modelData.zone }
+                                // Visitas gravadas antes do recurso de fotos não têm detalhes.
+                                Label { Layout.fillWidth: true; elide: Text.ElideRight
+                                    visible: modelData.frames > 0
+                                    text: "Certeza: " + (modelData.score === null || modelData.score === undefined ? "—" : Number(modelData.score).toFixed(2)) + " (" + visit.level + ")"
+                                        + (modelData.conf ? "  ·  detecção " + Number(modelData.conf).toFixed(2) : "") }
+                                Label { opacity: .6; elide: Text.ElideRight; Layout.fillWidth: true
+                                    text: modelData.frames > 0 ? modelData.frames + " quadros  ·  votos: " + (visit.votes || "—")
+                                                               : "Visita antiga: sem foto nem certeza registradas" }
+                            }
+                            ColumnLayout {
+                                spacing: 0
+                                Button { text: "Trocar gato"; flat: true; enabled: backend.cats.length > 0
+                                    onClicked: { catMenu.visitId = modelData.id; catMenu.popup() } }
+                                Button { text: "Apagar"; flat: true; Material.foreground: "#ff453a"
+                                    onClicked: { const id = modelData.id; win.ask("Apagar essa visita?", () => backend.deleteVisit(id)) } }
+                            }
                         }
-                        Label { text: new Date(modelData.start * 1000).toLocaleString(Qt.locale(), Locale.ShortFormat); opacity: .6 }
-                        ToolButton { text: "Trocar gato"; enabled: backend.cats.length > 0
-                            onClicked: { catMenu.visitId = modelData.id; catMenu.popup() } }
-                        ToolButton { text: "✕"
-                            onClicked: { const id = modelData.id; win.ask("Apagar essa visita?", () => backend.deleteVisit(id)) } }
                     }
                 }
             }
         }
+    }
+
+    // Foto da visita em tamanho grande
+    Popup {
+        id: preview
+        property alias source: bigPhoto.source
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(parent.width - 40, 960)
+        height: Math.min(parent.height - 40, 720)
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle { color: "#000"; radius: theme.radius }
+        Image { id: bigPhoto; anchors.fill: parent; fillMode: Image.PreserveAspectFit; asynchronous: true }
+        MouseArea { anchors.fill: parent; onClicked: preview.close() }
     }
 
     // ---------- Ajuda ----------

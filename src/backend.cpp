@@ -169,6 +169,14 @@ QString Backend::thumbUrl(const QString &cat, int revision) const {
     return url.toString();
 }
 
+QString Backend::photoUrl(int visitId) const {
+    QUrl url(m_url + QString("/api/visits/%1/photo").arg(visitId));
+    QUrlQuery q;
+    q.addQueryItem("token", m_token);
+    url.setQuery(q);
+    return url.toString();
+}
+
 void Backend::fixVisit(int id, const QString &cat) {
     send("PATCH", QString("/api/visits/%1").arg(id), QJsonDocument(QJsonObject{{"cat", cat}}).toJson(),
          tr("Visita atribuída a %1").arg(cat));
