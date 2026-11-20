@@ -10,7 +10,7 @@ ApplicationWindow {
     height: 700
     minimumWidth: 600
     minimumHeight: 440
-    visible: true
+    visible: !startHidden
     title: "Catwatch"
     color: "#0e0e10"
 
@@ -23,14 +23,35 @@ ApplicationWindow {
 
     function typing() { return activeFocusItem instanceof TextInput }
 
+    // Fechar a janela: fica na bandeja (o servidor segue monitorando) ou sai de vez.
+    onClosing: close => {
+        if (shell.runInBackground && shell.trayAvailable) {
+            close.accepted = false
+            win.hide()
+        } else {
+            shell.quit()
+        }
+    }
+    function quitApp() {
+        if (server.owned)
+            win.ask("Sair do Catwatch? O servidor deste PC será parado e as câmeras deixam de ser monitoradas.", () => shell.quit())
+        else
+            shell.quit()
+    }
+    Connections {
+        target: shell
+        function onShowWindowRequested() { win.show(); win.raise(); win.requestActivate() }
+    }
+
     // Atalhos de letra só valem fora dos campos de texto, para não atrapalhar quem digita.
     Shortcut { sequence: "?"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: win.helpVisible = !win.helpVisible }
-    Shortcut { sequence: "Q"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: Qt.quit() }
+    Shortcut { sequence: "Q"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: win.quitApp() }
     Shortcut { sequence: "R"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: backend.refresh() }
     Shortcut { sequence: "1"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: tabs.currentIndex = 0 }
     Shortcut { sequence: "2"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: tabs.currentIndex = 1 }
     Shortcut { sequence: "3"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: tabs.currentIndex = 2 }
     Shortcut { sequence: "4"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: tabs.currentIndex = 3 }
+    Shortcut { sequence: "5"; enabled: !win.typing(); context: Qt.ApplicationShortcut; onActivated: tabs.currentIndex = 4 }
 
     // Resultado das ações (salvar zonas, enviar fotos, erros do servidor...)
     Connections {
@@ -152,6 +173,28 @@ ApplicationWindow {
                 onAccepted: backend.connectTo(urlField.text, text) }
             Label { text: backend.error; color: "#ff453a"; visible: text !== ""; wrapMode: Text.Wrap; Layout.fillWidth: true }
             Button { text: "Conectar"; highlighted: true; Layout.fillWidth: true; onClicked: backend.connectTo(urlField.text, tokenField.text) }
+
+            // Servidor neste PC: um clique liga e conecta, sem digitar nada.
+            Label { text: "ou"; opacity: .5; Layout.alignment: Qt.AlignHCenter; Layout.topMargin: 8 }
+            Button {
+                Layout.fillWidth: true
+                enabled: server.serverDirValid && server.state !== "starting" && server.state !== "stopping"
+                text: server.state === "running" || server.state === "external" ? "Conectar ao servidor deste PC" : "Iniciar o servidor deste PC"
+                onClicked: server.state === "running" || server.state === "external"
+                           ? backend.connectTo(server.localUrl(), server.localToken()) : server.start()
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: server.state === "starting" || server.message !== ""
+                BusyIndicator { running: server.state === "starting"; visible: running; implicitWidth: 28; implicitHeight: 28 }
+                Label { text: server.message; wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: .7
+                    color: server.state === "error" ? "#ff453a" : "#e5e5ea" }
+            }
+            Label {
+                visible: !server.serverDirValid
+                text: "Para usar o servidor deste PC, escolha a pasta dele na aba Servidor depois de conectar, ou defina CATWATCH_SERVER_DIR."
+                opacity: .5; wrapMode: Text.Wrap; Layout.fillWidth: true
+            }
         }
     }
 
@@ -171,8 +214,9 @@ ApplicationWindow {
                 TabButton { text: "Câmeras (2)" }
                 TabButton { text: "Gatos (3)" }
                 TabButton { text: "Histórico (4)" }
+                TabButton { text: "Servidor (5)" }
             }
-            ToolButton { text: "Sair"; onClicked: backend.disconnectServer() }
+            ToolButton { text: "Desconectar"; onClicked: backend.disconnectServer() }
         }
 
         Label {
@@ -197,6 +241,23 @@ ApplicationWindow {
                     x: 16; y: 16
                     width: parent.width - 32
                     spacing: 12
+                    // Alertas do dia (não bebeu água, excesso de caixa...).
+                    Repeater {
+                        model: backend.alertsToday
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: alertText.implicitHeight + 20
+                            radius: theme.radius
+                            color: modelData.level === "error" ? "#3a1715" : "#3a2a0f"
+                            border.color: modelData.level === "error" ? "#ff453a" : "#ff9f0a"
+                            Label {
+                                id: alertText
+                                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 12 }
+                                text: "⚠️  " + modelData.message + "   ·   " + new Date(modelData.ts * 1000).toLocaleTimeString(Qt.locale(), "HH:mm")
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
                     Label { text: "Hoje"; font.pixelSize: 18; font.bold: true }
                     Label { visible: backend.today.length === 0; text: "Nenhuma visita registrada hoje."; opacity: .6 }
                     Flow {
@@ -456,7 +517,7 @@ ApplicationWindow {
                                 Label { anchors.centerIn: parent; text: "sem foto"; opacity: .5; visible: !modelData.photo }
                                 MouseArea {
                                     anchors.fill: parent
-                                    enabled: modelData.photo
+                                    enabled: modelData.photo === true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: { preview.source = backend.photoUrl(modelData.id); preview.open() }
                                 }
@@ -487,6 +548,11 @@ ApplicationWindow {
                     }
                 }
             }
+
+            ServerPage {
+                active: tabs.currentIndex === 4
+                ask: win.ask
+            }
         }
     }
 
@@ -516,7 +582,7 @@ ApplicationWindow {
             anchors.centerIn: parent
             spacing: 6
             Label { text: "Atalhos"; font.bold: true; font.pixelSize: 20 }
-            Label { text: "1 / 2 / 3 / 4   Hoje · Câmeras · Gatos · Histórico" }
+            Label { text: "1 / 2 / 3 / 4 / 5   Hoje · Câmeras · Gatos · Histórico · Servidor" }
             Label { text: "R   Atualizar" }
             Label { text: "?   Esta ajuda" }
             Label { text: "Q   Sair" }

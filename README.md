@@ -1,17 +1,32 @@
 # Catwatch (desktop)
 
-Painel leve em Qt Quick com as mesmas funções do app de celular: contagem do dia e
-dos últimos 7 dias por gato, câmeras ao vivo (adicionar, remover, editar zonas),
-cadastro de gatos (fotos do disco ou da câmera) e histórico com correção.
-É só um cliente: a detecção e a identificação rodam no servidor (`../pet`).
+App leve em Qt Quick para acompanhar os gatos e controlar o servidor Catwatch deste PC.
 
-Build: `bin/build` e `build/catwatch`. Instalar no launcher: `bin/install`.
-Na primeira vez informe o endereço do servidor e o token (impresso no terminal
-do servidor, também em `pet/data/token.txt`).
+- **Hoje**: alertas do dia, contagem por gato e últimos 7 dias.
+- **Câmeras**: ao vivo, adicionar, remover e editar zonas.
+- **Gatos**: cadastro com fotos do disco ou da câmera, com progresso do envio.
+- **Histórico**: foto de cada visita, certeza da identificação, votos e correção.
+- **Servidor**: liga, para e reinicia o servidor deste PC; QR code para conectar o
+  celular; uso de CPU, memória e placa de vídeo; configurações; exportar CSV e
+  backup; log ao vivo e saída do processo.
+
+Fechar a janela deixa o app na bandeja, com o servidor monitorando. Com
+"Iniciar com o sistema", o app abre no login direto na bandeja (`catwatch --background`)
+e liga o servidor. Alertas (gato sem beber água, excesso de idas à caixa, câmera
+fora do ar) viram notificações do sistema.
+
+## Servidor
+O app procura o projeto do servidor (`pet/`, com `catwatch/` e `.venv`) em
+`CATWATCH_SERVER_DIR`, ao lado do app ou em `~/projetos/meus/github/pet`; dá para
+escolher outra pasta na aba Servidor. Um servidor já rodando na porta (pelo
+terminal ou systemd) é reconhecido e usado.
+
+## Build
+`bin/build` e `build/catwatch`. Instalar no launcher: `bin/install`.
 
 | Tecla | Ação |
 |-------|------|
-| 1 / 2 / 3 / 4 | Hoje · Câmeras · Gatos · Histórico |
+| 1 a 5 | Hoje · Câmeras · Gatos · Histórico · Servidor |
 | R | Atualizar |
 | ? | Atalhos |
-| Q | Sair |
+| Q | Sair (pergunta antes se o servidor deste PC estiver rodando) |

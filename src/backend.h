@@ -23,6 +23,16 @@ class Backend : public QObject {
     Q_PROPERTY(int uploadTotal READ uploadTotal NOTIFY uploadChanged)
     Q_PROPERTY(int uploadDone READ uploadDone NOTIFY uploadChanged)
     Q_PROPERTY(QString uploadCat READ uploadCat NOTIFY uploadChanged)
+    Q_PROPERTY(QString token READ token NOTIFY connectedChanged)
+    Q_PROPERTY(bool isLocal READ isLocal NOTIFY connectedChanged)
+    Q_PROPERTY(QVariantMap status READ status NOTIFY statusChanged)
+    Q_PROPERTY(QVariantList events READ events NOTIFY eventsChanged)
+    Q_PROPERTY(QVariantList alertsToday READ alertsToday NOTIFY dataChanged)
+    Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantMap pair READ pair NOTIFY pairChanged)
+    Q_PROPERTY(int pairRevision READ pairRevision NOTIFY pairChanged)
+    Q_PROPERTY(bool downloading READ downloading NOTIFY downloadChanged)
+    Q_PROPERTY(int downloadProgress READ downloadProgress NOTIFY downloadChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -41,6 +51,25 @@ public:
     int uploadTotal() const { return m_upTotal; }
     int uploadDone() const { return m_upDone; }
     QString uploadCat() const { return m_upCat; }
+    QString token() const { return m_token; }
+    bool isLocal() const;
+    QVariantMap status() const { return m_status; }
+    QVariantList events() const { return m_events; }
+    QVariantList alertsToday() const { return m_alertsToday; }
+    QVariantMap settings() const { return m_serverSettings; }
+    QVariantMap pair() const { return m_pair; }
+    int pairRevision() const { return m_pairRevision; }
+    bool downloading() const { return m_download != nullptr; }
+    int downloadProgress() const { return m_downloadProgress; }
+
+    // Aba Servidor
+    Q_INVOKABLE void loadSettings();
+    Q_INVOKABLE void saveSettings(const QVariantMap &changes);
+    Q_INVOKABLE void regenerateToken();
+    Q_INVOKABLE void loadPair();
+    Q_INVOKABLE QString pairQrUrl(int revision) const;
+    // Baixa um arquivo do servidor (CSV, backup) direto para o caminho escolhido.
+    Q_INVOKABLE void download(const QString &path, const QString &fileUrl);
 
     Q_INVOKABLE void connectTo(const QString &url, const QString &token);
     Q_INVOKABLE void disconnectServer();
@@ -76,7 +105,13 @@ signals:
     void dataChanged();
     void frameChanged();
     void uploadChanged();
-    // Resultado de uma ação do usuário (sucesso ou o motivo da falha), para mostrar na janela.
+    void statusChanged();
+    void eventsChanged();
+    void settingsChanged();
+    void pairChanged();
+    void downloadChanged();
+    // Evento novo do servidor (depois da carga inicial), para virar notificação.
+    void newEvent(const QVariantMap &event);    // Resultado de uma ação do usuário (sucesso ou o motivo da falha), para mostrar na janela.
     void message(const QString &text, bool isError);
 
 private:
@@ -84,6 +119,7 @@ private:
     QNetworkRequest request(const QString &path) const;
     void setError(const QString &e);
     void nextUpload();
+    void pollEvents();
     void finishAction(QNetworkReply *reply, const QString &okText);
     void send(const QString &method, const QString &path, const QByteArray &body = {}, const QString &okText = {});
     static QString enc(const QString &s) { return QString::fromUtf8(QUrl::toPercentEncoding(s)); }
@@ -102,4 +138,13 @@ private:
     bool m_uploading = false;
     int m_upTotal = 0, m_upDone = 0;
     QString m_upCat, m_upError;
+
+    QTimer m_eventsPoll;
+    int m_lastEventId = 0;
+    bool m_eventsLoaded = false;
+    QVariantMap m_status, m_serverSettings, m_pair;
+    QVariantList m_events, m_alertsToday;
+    int m_pairRevision = 0;
+    QNetworkReply *m_download = nullptr;
+    int m_downloadProgress = -1;
 };

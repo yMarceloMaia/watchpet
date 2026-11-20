@@ -2,5 +2,7 @@
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
         <file alias="ZoneEditor.qml">ZoneEditor.qml</file>
+        <file alias="ServerPage.qml">ServerPage.qml</file>
+        <file alias="icon.svg">icon.svg</file>
     </qresource>
 </RCC>

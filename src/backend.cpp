@@ -1,6 +1,8 @@
 #include "backend.h"
 
+#include <QDateTime>
 #include <QFile>
+#include <QSaveFile>
 #include <memory>
 #include <QFileInfo>
 #include <QHttpMultiPart>
@@ -16,6 +18,8 @@
 Backend::Backend(QObject *parent) : QObject(parent), m_settings("catwatch", "catwatch") {
     m_poll.setInterval(5000);
     connect(&m_poll, &QTimer::timeout, this, &Backend::refresh);
+    m_eventsPoll.setInterval(3000);
+    connect(&m_eventsPoll, &QTimer::timeout, this, &Backend::pollEvents);
     m_frames.setInterval(800);
     connect(&m_frames, &QTimer::timeout, this, [this] { ++m_frame; emit frameChanged(); });
 
@@ -77,10 +81,18 @@ void Backend::connectTo(const QString &url, const QString &token) {
             m_settings.setValue("url", m_url);
             m_settings.setValue("token", m_token);
             m_connected = true;
+            m_lastEventId = 0;
+            m_eventsLoaded = false;
+            m_events.clear();
+            emit eventsChanged();
             emit connectedChanged();
             m_poll.start();
             m_frames.start();
+            m_eventsPoll.start();
             refresh();
+            pollEvents();
+            loadSettings();
+            loadPair();
         } else {
             m_connected = false;
             emit connectedChanged();
@@ -93,6 +105,7 @@ void Backend::connectTo(const QString &url, const QString &token) {
 void Backend::disconnectServer() {
     m_poll.stop();
     m_frames.stop();
+    m_eventsPoll.stop();
     m_settings.remove("token");
     m_connected = false;
     emit connectedChanged();
@@ -129,6 +142,24 @@ void Backend::refresh() {
                           {"/api/recent?limit=100", &Backend::m_recent, {}},
                           {"/api/cameras", &Backend::m_cameras, {}},
                           {"/api/cats", &Backend::m_cats, {}}};
+    auto *st = get("/api/status");
+    connect(st, &QNetworkReply::finished, this, [this, st] {
+        st->deleteLater();
+        if (st->error() == QNetworkReply::NoError) {
+            m_status = QJsonDocument::fromJson(st->readAll()).object().toVariantMap();
+            emit statusChanged();
+        }
+    });
+    const qint64 midnight = QDateTime(QDate::currentDate(), QTime(0, 0)).toSecsSinceEpoch();
+    auto *al = get(QString("/api/events?type=alert&since=%1").arg(midnight));
+    connect(al, &QNetworkReply::finished, this, [this, al] {
+        al->deleteLater();
+        if (al->error() == QNetworkReply::NoError) {
+            m_alertsToday = QJsonDocument::fromJson(al->readAll()).array().toVariantList();
+            std::reverse(m_alertsToday.begin(), m_alertsToday.end());
+            emit dataChanged();
+        }
+    });
     for (const auto &job : jobs) {
         auto *reply = get(job.path);
         connect(reply, &QNetworkReply::finished, this, [this, reply, job] {
@@ -264,3 +295,143 @@ void Backend::catFromCamera(const QString &cat, const QString &camera) {
 }
 
 void Backend::deleteCat(const QString &cat) { send("DELETE", "/api/cats/" + enc(cat), {}, tr("%1 apagado").arg(cat)); }
+
+bool Backend::isLocal() const {
+    const QString host = QUrl(m_url).host();
+    return host == "127.0.0.1" || host == "localhost" || host == "::1";
+}
+
+void Backend::pollEvents() {
+    if (!m_connected)
+        return;
+    // Primeira carga: os últimos 200, sem notificar (são do passado). Depois: só os novos.
+    auto *reply = get(m_eventsLoaded ? QString("/api/events?after=%1").arg(m_lastEventId)
+                                     : QString("/api/events?limit=200"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const auto list = QJsonDocument::fromJson(reply->readAll()).array().toVariantList();
+        if (list.isEmpty() && m_eventsLoaded)
+            return;
+        // Os mais novos primeiro, para a lista do log.
+        for (const auto &v : list) {
+            const auto e = v.toMap();
+            m_lastEventId = std::max(m_lastEventId, e.value("id").toInt());
+            m_events.prepend(e);
+            if (m_eventsLoaded)
+                emit newEvent(e);
+        }
+        while (m_events.size() > 300)
+            m_events.removeLast();
+        m_eventsLoaded = true;
+        emit eventsChanged();
+    });
+}
+
+void Backend::loadSettings() {
+    auto *reply = get("/api/settings");
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            m_serverSettings = QJsonDocument::fromJson(reply->readAll()).object().toVariantMap();
+            emit settingsChanged();
+        }
+    });
+}
+
+void Backend::saveSettings(const QVariantMap &changes) {
+    auto req = request("/api/settings");
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    auto *reply = m_net.put(req, QJsonDocument::fromVariant(changes).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        const auto body = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() != QNetworkReply::NoError) {
+            const QString d = body.value("detail").toString();
+            emit message(d.isEmpty() ? reply->errorString() : d, true);
+            return;
+        }
+        m_serverSettings = body.value("settings").toObject().toVariantMap();
+        emit settingsChanged();
+        emit message(body.value("restart_required").toBool()
+                         ? tr("Configurações salvas. Reinicie o servidor para aplicar a porta ou o processador.")
+                         : tr("Configurações salvas e aplicadas"), false);
+        refresh();
+    });
+}
+
+void Backend::regenerateToken() {
+    auto *reply = m_net.post(request("/api/token/regenerate"), QByteArray());
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit message(reply->errorString(), true);
+            return;
+        }
+        m_token = QJsonDocument::fromJson(reply->readAll()).object().value("token").toString();
+        m_settings.setValue("token", m_token);
+        emit connectedChanged();
+        emit message(tr("Token trocado. Celulares e outros PCs precisam conectar de novo."), false);
+        loadPair();
+    });
+}
+
+void Backend::loadPair() {
+    auto *reply = get("/api/pair");
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            m_pair = QJsonDocument::fromJson(reply->readAll()).object().toVariantMap();
+            ++m_pairRevision;
+            emit pairChanged();
+        }
+    });
+}
+
+QString Backend::pairQrUrl(int revision) const {
+    QUrl url(m_url + "/api/pair.png");
+    QUrlQuery q;
+    q.addQueryItem("token", m_token);
+    q.addQueryItem("r", QString::number(revision));
+    url.setQuery(q);
+    return url.toString();
+}
+
+void Backend::download(const QString &path, const QString &fileUrl) {
+    if (m_download)
+        return;
+    auto *file = new QSaveFile(QUrl(fileUrl).toLocalFile(), this);
+    if (!file->open(QIODevice::WriteOnly)) {
+        emit message(tr("Não consegui gravar em %1").arg(file->fileName()), true);
+        delete file;
+        return;
+    }
+    auto req = request(path);
+    req.setTransferTimeout(10 * 60 * 1000);  // o backup pode ser grande
+    m_download = m_net.get(req);
+    m_downloadProgress = -1;
+    emit downloadChanged();
+    connect(m_download, &QNetworkReply::readyRead, this, [this, file] { file->write(m_download->readAll()); });
+    connect(m_download, &QNetworkReply::downloadProgress, this, [this](qint64 got, qint64 total) {
+        m_downloadProgress = total > 0 ? int(got * 100 / total) : -1;
+        emit downloadChanged();
+    });
+    connect(m_download, &QNetworkReply::finished, this, [this, file] {
+        auto *reply = m_download;
+        m_download = nullptr;
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            file->write(reply->readAll());
+            if (file->commit())  // grava ao lado e renomeia: nunca deixa um arquivo pela metade
+                emit message(tr("Salvo em %1").arg(file->fileName()), false);
+            else
+                emit message(tr("Não consegui gravar em %1").arg(file->fileName()), true);
+        } else {
+            file->cancelWriting();
+            emit message(reply->errorString(), true);
+        }
+        file->deleteLater();
+        emit downloadChanged();
+    });
+}
