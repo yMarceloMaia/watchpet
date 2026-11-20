@@ -62,8 +62,17 @@ signals:
 
 private:
     void setState(const QString &state, const QString &message = {});
-    void probe(std::function<void(bool)> done);
+    // Quem responde na porta: ninguém, o servidor desta pasta (aceita o nosso token) ou
+    // um servidor Catwatch de outra pasta (recusa o token): nesse caso não dá para usá-lo.
+    enum Probe { Down, Ours, Foreign };
+    void probe(std::function<void(Probe)> done);
+    QString foreignMessage() const;
+    void useExisting(const QString &message);
     void appendOutput(const QString &text);
+    // PID do servidor que segura a trava da pasta de dados (.catwatch.lock), se ele ainda vive.
+    qint64 otherServerPid() const;
+    void waitForOther(qint64 pid);
+    QString lastServerMessage() const;
     QString readConfigValue(const QString &key) const;
 
     QSettings m_settings;
@@ -72,6 +81,8 @@ private:
     QTimer m_wait;
     int m_waitedSeconds = 0;
     bool m_restartAfterStop = false;
+    // Esperando um servidor aberto fora do app (terminal, systemd) terminar de carregar.
+    qint64 m_otherPid = 0;
     QString m_state = "stopped", m_message;
     QStringList m_output;
 };

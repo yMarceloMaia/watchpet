@@ -39,16 +39,61 @@ ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("cat
             }
             return;
         }
-        const QString msg = tr("O servidor parou sozinho (código %1). Veja a saída do processo.").arg(code);
-        setState("error", msg);
-        emit crashed(msg);
+        // 10 = pasta de dados em uso, 11 = porta em uso: outro servidor ganhou a corrida.
+        // Se há um Catwatch respondendo na porta, é só usar ele; não é erro.
+        const QString why = lastServerMessage();
+        probe([this, code, why](Probe p) {
+            if (p == Ours) {
+                useExisting(tr("Outro servidor Catwatch já estava rodando; usando ele."));
+                return;
+            }
+            if (p == Foreign) {
+                setState("error", foreignMessage());
+                emit crashed(foreignMessage());
+                return;
+            }
+            if (const qint64 pid = otherServerPid(); code == 10 && pid) {
+                waitForOther(pid);
+                return;
+            }
+            const QString msg = why.isEmpty() ? tr("O servidor parou sozinho (código %1). Veja a saída do processo.").arg(code)
+                                              : tr("O servidor parou: %1").arg(why);
+            setState("error", msg);
+            emit crashed(msg);
+        });
     });
 
     m_wait.setInterval(1000);
     connect(&m_wait, &QTimer::timeout, this, [this] {
         ++m_waitedSeconds;
-        probe([this](bool up) {
-            if (m_state == "starting" && up) {
+        probe([this](Probe p) {
+            const bool up = p != Down;
+            if (m_otherPid) {
+                // Servidor de fora do app carregando: assim que responder, usamos ele.
+                if (p == Ours) {
+                    m_otherPid = 0;
+                    m_wait.stop();
+                    useExisting(tr("Servidor aberto fora do app"));
+                } else if (p == Foreign) {
+                    m_otherPid = 0;
+                    m_wait.stop();
+                    setState("error", foreignMessage());
+                } else if (otherServerPid() != m_otherPid) {
+                    m_otherPid = 0;  // ele desistiu ou morreu: seguimos o fluxo normal
+                    m_wait.stop();
+                    setState("stopped");
+                    if (autoStart() && serverDirValid())
+                        start();
+                } else if (m_waitedSeconds > 180) {
+                    m_otherPid = 0;
+                    m_wait.stop();
+                    setState("error", tr("O servidor aberto fora do app não respondeu em 3 minutos."));
+                }
+                return;
+            }
+            // Enquanto o nosso carrega, um servidor de outra pasta pode responder na porta: não é o nosso.
+            // O nosso vai falhar ao ocupar a porta, e o aviso sai quando ele encerrar.
+            if (m_state == "starting" && p == Ours) {
                 m_wait.stop();
                 setState("running");
                 emit ready(localUrl(), localToken());
@@ -147,16 +192,26 @@ void ServerManager::setState(const QString &state, const QString &message) {
     emit stateChanged();
 }
 
-void ServerManager::probe(std::function<void(bool)> done) {
-    QNetworkRequest req(QUrl(localUrl() + "/api/info"));
+void ServerManager::probe(std::function<void(Probe)> done) {
+    QNetworkRequest req(QUrl(localUrl() + "/api/check"));
+    req.setRawHeader("X-Token", localToken().toUtf8());
     req.setTransferTimeout(1500);
     auto *reply = m_net.get(req);
     connect(reply, &QNetworkReply::finished, this, [reply, done] {
         reply->deleteLater();
-        const bool up = reply->error() == QNetworkReply::NoError
-                        && QJsonDocument::fromJson(reply->readAll()).object().value("app").toString() == "catwatch";
-        done(up);
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        done(status == 200 ? Ours : status == 401 ? Foreign : Down);
     });
+}
+
+QString ServerManager::foreignMessage() const {
+    return tr("A porta %1 está ocupada por um servidor Catwatch de outra pasta (outro token). "
+              "Feche esse servidor ou mude a porta nas configurações.").arg(port());
+}
+
+void ServerManager::useExisting(const QString &message) {
+    setState("external", message);
+    emit ready(localUrl(), localToken());
 }
 
 void ServerManager::appendOutput(const QString &text) {
@@ -173,14 +228,50 @@ void ServerManager::appendOutput(const QString &text) {
 }
 
 void ServerManager::detect(bool forceStart) {
-    probe([this, forceStart](bool up) {
-        if (up) {
-            setState("external", tr("Servidor já estava rodando neste PC"));
-            emit ready(localUrl(), localToken());
+    probe([this, forceStart](Probe p) {
+        if (p == Ours) {
+            useExisting(tr("Servidor já estava rodando neste PC"));
+        } else if (p == Foreign) {
+            setState("error", foreignMessage());
+        } else if (const qint64 pid = otherServerPid()) {
+            waitForOther(pid);  // aberto pelo terminal agora há pouco: ainda carregando os modelos
         } else if ((forceStart || autoStart()) && serverDirValid()) {
             start();
         }
     });
+}
+
+qint64 ServerManager::otherServerPid() const {
+    QFile f(QDir(serverDir()).filePath(".catwatch.lock"));
+    if (!f.open(QIODevice::ReadOnly))
+        return 0;
+    const qint64 pid = QString::fromUtf8(f.readAll()).trimmed().toLongLong();
+    if (pid <= 0 || pid == m_process.processId())
+        return 0;
+#ifdef Q_OS_LINUX
+    // A trava fica no arquivo mesmo depois do servidor morrer; o PID só vale se o processo
+    // ainda existe e é mesmo um Catwatch (PIDs são reaproveitados).
+    QFile cmd(QString("/proc/%1/cmdline").arg(pid));
+    if (!cmd.open(QIODevice::ReadOnly) || !cmd.readAll().contains("catwatch"))
+        return 0;
+    return pid;
+#else
+    return 0;  // no Windows, o app só confia na porta
+#endif
+}
+
+void ServerManager::waitForOther(qint64 pid) {
+    m_otherPid = pid;
+    m_waitedSeconds = 0;
+    setState("starting", tr("Outro servidor Catwatch está iniciando (PID %1). Aguardando ele em vez de abrir outro.").arg(pid));
+    m_wait.start();
+}
+
+QString ServerManager::lastServerMessage() const {
+    for (auto it = m_output.crbegin(); it != m_output.crend(); ++it)
+        if (it->startsWith("catwatch: "))
+            return it->mid(10);
+    return {};
 }
 
 void ServerManager::start() {
@@ -192,10 +283,17 @@ void ServerManager::start() {
     }
     setState("starting", tr("Verificando…"));
     // Se algo já responde na porta, usa em vez de abrir outro (que falharia ao ocupar a porta).
-    probe([this](bool up) {
-        if (up) {
-            setState("external", tr("Servidor já estava rodando neste PC"));
-            emit ready(localUrl(), localToken());
+    probe([this](Probe p) {
+        if (p == Ours) {
+            useExisting(tr("Servidor já estava rodando neste PC"));
+            return;
+        }
+        if (p == Foreign) {
+            setState("error", foreignMessage());
+            return;
+        }
+        if (const qint64 pid = otherServerPid()) {
+            waitForOther(pid);
             return;
         }
         const QString dir = serverDir();
@@ -219,6 +317,13 @@ void ServerManager::start() {
 }
 
 void ServerManager::stop() {
+    if (m_otherPid) {
+        // Esperávamos um servidor aberto fora do app: paramos de esperar, mas ele é de quem o abriu.
+        m_otherPid = 0;
+        m_wait.stop();
+        setState("stopped", tr("O servidor aberto fora do app continua iniciando; feche-o por onde ele foi aberto."));
+        return;
+    }
     if (owned()) {
         setState("stopping", tr("Encerrando…"));
         m_process.terminate();  // SIGTERM: o uvicorn fecha as conexões e o banco direito
