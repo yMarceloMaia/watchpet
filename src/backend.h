@@ -36,6 +36,7 @@ public:
     Q_INVOKABLE QString savedToken() const { return m_settings.value("token").toString(); }
     Q_INVOKABLE void fixVisit(int id, const QString &cat);
     Q_INVOKABLE void deleteVisit(int id);
+    Q_INVOKABLE void removeCamera(const QString &name);
 
     // Resume as contagens do dia em uma linha por gato (litter/food/water), para a tela "Hoje".
     static QVariantList pivot(const QVariantList &counts);

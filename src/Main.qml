@@ -117,16 +117,18 @@ ApplicationWindow {
                     x: 16; y: 16
                     width: parent.width - 32
                     spacing: 12
+                    // Quantas câmeras cabem por linha com pelo menos 320px cada; assim o cartão nunca fica gigante.
+                    readonly property int columns: Math.max(1, Math.floor((width + spacing) / (320 + spacing)))
+                    readonly property real cardWidth: Math.floor((width - spacing * (columns - 1)) / columns)
                     Repeater {
                         model: backend.cameras
                         Rectangle {
-                            id: camCard
-                            width: Math.max(300, (camFlow.width - 12) / Math.max(1, Math.min(2, backend.cameras.length)))
+                            width: camFlow.cardWidth
                             height: width * 9 / 16 + 34
                             color: "#1b1b1f"; radius: theme.radius
                             Image {
                                 // Só busca imagem quando esta aba está visível, para não gastar rede e CPU à toa.
-                                source: tabs.currentIndex === 1 ? backend.snapshotUrl(modelData.name, backend.frame) : ""
+                                source: tabs.currentIndex === 1 && modelData.online ? backend.snapshotUrl(modelData.name, backend.frame) : ""
                                 cache: false
                                 asynchronous: true
                                 fillMode: Image.PreserveAspectFit
@@ -134,9 +136,22 @@ ApplicationWindow {
                                 height: parent.height - 34
                             }
                             Label {
+                                visible: !modelData.online
+                                anchors.centerIn: parent
+                                anchors.verticalCenterOffset: -17
+                                text: "Sem sinal"
+                                opacity: .5
+                            }
+                            Label {
                                 anchors { left: parent.left; bottom: parent.bottom; margins: 8 }
                                 text: (modelData.online ? "● " : "○ ") + modelData.name
                                 color: modelData.online ? "#30d158" : "#ff453a"
+                            }
+                            ToolButton {
+                                anchors { right: parent.right; bottom: parent.bottom }
+                                height: 34
+                                text: "Remover"
+                                onClicked: { removeDialog.camera = modelData.name; removeDialog.open() }
                             }
                         }
                     }
@@ -160,6 +175,17 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    Dialog {
+        id: removeDialog
+        property string camera
+        anchors.centerIn: parent
+        modal: true
+        title: "Remover câmera?"
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        Label { text: "A câmera “" + removeDialog.camera + "” e suas zonas serão removidas." }
+        onAccepted: backend.removeCamera(camera)
     }
 
     // Ajuda

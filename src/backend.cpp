@@ -140,3 +140,7 @@ void Backend::fixVisit(int id, const QString &cat) {
 }
 
 void Backend::deleteVisit(int id) { send("DELETE", QString("/api/visits/%1").arg(id)); }
+
+void Backend::removeCamera(const QString &name) {
+    send("DELETE", "/api/cameras/" + QString::fromUtf8(QUrl::toPercentEncoding(name)));
+}
