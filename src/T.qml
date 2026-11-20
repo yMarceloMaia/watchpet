@@ -4,22 +4,28 @@ import QtQuick
 // Tokens visuais do Catwatch ("vigília noturna"). Os mesmos valores estão em
 // catwatch-mobile/src/ui.tsx; mude nos dois lugares.
 QtObject {
-    // Superfícies: índigo noturno, do fundo para a frente.
-    readonly property color night: "#171A2B"   // fundo do conteúdo
-    readonly property color dusk: "#1F2338"    // painéis e trilho
-    readonly property color haze: "#2A2F4A"    // campos, hover, faixa do dia
-    readonly property color seam: "#363C5E"    // linhas de 1 px
-    readonly property color moon: "#ECEAF4"    // texto
-    readonly property color fog: "#9EA1BD"     // texto secundário
+    // Claro ou escuro: o Main.qml liga isto à preferência do usuário e ao tema do sistema.
+    property bool dark: true
+
+    // Superfícies. Escuro: índigo noturno. Claro: manhã, um cinza-azulado frio.
+    readonly property color night: dark ? "#171A2B" : "#F3F4F9"   // fundo do conteúdo
+    readonly property color dusk: dark ? "#1F2338" : "#FFFFFF"    // painéis e trilho
+    readonly property color haze: dark ? "#2A2F4A" : "#E7E9F2"    // campos, hover, faixa do dia
+    readonly property color seam: dark ? "#363C5E" : "#D5D8E6"    // linhas de 1 px
+    readonly property color moon: dark ? "#ECEAF4" : "#1E2236"    // texto
+    readonly property color fog: dark ? "#9EA1BD" : "#626783"     // texto secundário
 
     // As três necessidades do dia: a mesma cor em todo lugar onde aparecem.
-    readonly property color sand: "#D8BE8A"    // caixa de areia
-    readonly property color paw: "#F2899B"     // comida
-    readonly property color pool: "#66C6F2"    // água
+    // No claro, tons mais fundos para ler bem sobre o branco.
+    readonly property color sand: dark ? "#D8BE8A" : "#A27A2C"    // caixa de areia
+    readonly property color paw: dark ? "#F2899B" : "#CC4A66"     // comida
+    readonly property color pool: dark ? "#66C6F2" : "#1B86BE"    // água
 
-    readonly property color alert: "#FF6B6B"
-    readonly property color warn: "#F4C152"
-    readonly property color ok: "#6EDC9A"
+    readonly property color alert: dark ? "#FF6B6B" : "#D23C3C"
+    readonly property color warn: dark ? "#F4C152" : "#A9780A"
+    readonly property color ok: dark ? "#6EDC9A" : "#25915A"
+    // Véu atrás de diálogos e fotos ampliadas.
+    readonly property color scrim: dark ? "#cc0b0d18" : "#991e2236"
 
     // Escala binária: espaços e cantos só nestes valores.
     readonly property int s2: 2
@@ -65,6 +71,7 @@ QtObject {
         "refresh": 0xf0450, "play": 0xf040a, "stop": 0xf04db, "restart": 0xf0709, "qrcode-scan": 0xf0433,
         "download": 0xf01da, "vector-polygon": 0xf0560, "swap-horizontal": 0xf04e1, "folder-open": 0xf0770,
         "content-save": 0xf0193, "power": 0xf0425, "eye": 0xf0208, "eye-off": 0xf0209,
-        "clock-outline": 0xf0150, "web": 0xf059f, "lan-disconnect": 0xf0319
+        "clock-outline": 0xf0150, "web": 0xf059f, "lan-disconnect": 0xf0319,
+        "brightness-auto": 0xf00e1, "white-balance-sunny": 0xf05a8, "weather-night": 0xf0594
     })
 }

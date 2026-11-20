@@ -97,6 +97,11 @@ void Shell::setNotifyAlerts(bool on) {
     emit changed();
 }
 
+void Shell::setThemeMode(const QString &mode) {
+    m_settings.setValue("shell/themeMode", mode == "light" || mode == "dark" ? mode : "auto");
+    emit changed();
+}
+
 QString Shell::autostartPath() {
     return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/autostart/catwatch.desktop";
 }

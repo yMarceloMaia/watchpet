@@ -30,6 +30,14 @@ QString Theme::readAccent(const QString &path) {
     return "#FFD60A";
 }
 
+bool Theme::readLight(const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    const QRegularExpression expression(R"re(^\s*mode\s*=\s*["']light["'])re", QRegularExpression::MultilineOption);
+    return expression.match(QString::fromUtf8(file.readAll())).hasMatch();
+}
+
 // Preto ou branco, o que ler melhor sobre o accent (luminância relativa WCAG).
 QString Theme::accentForeground() const {
     const QColor c(m_accent);
@@ -54,8 +62,10 @@ void Theme::reload() {
             m_watcher.addPath(path);
 
     const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
+    const bool light = readLight(m_directory + "/theme/colors.toml");
+    if (accent != m_accent || light != m_light) {
         m_accent = accent;
+        m_light = light;
         emit changed();
     }
 }

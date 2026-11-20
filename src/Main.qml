@@ -17,7 +17,9 @@ ApplicationWindow {
     font.family: T.family
     font.pixelSize: T.body
 
-    Material.theme: Material.Dark
+    // Automático segue o tema do Omarchy (claro quando o colors.toml diz mode = "light").
+    Binding { target: T; property: "dark"; value: shell.themeMode === "dark" || (shell.themeMode === "auto" && !theme.light) }
+    Material.theme: T.dark ? Material.Dark : Material.Light
     Material.accent: theme.accent
     Material.background: T.dusk
     Material.foreground: T.moon
@@ -157,7 +159,7 @@ ApplicationWindow {
         padding: 0
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle { color: "black"; radius: T.r8 }
-        Overlay.modal: Rectangle { color: "#cc0b0d18" }
+        Overlay.modal: Rectangle { color: T.scrim }
         Image { id: bigPhoto; anchors.fill: parent; fillMode: Image.PreserveAspectFit; asynchronous: true }
         MouseArea { anchors.fill: parent; onClicked: preview.close() }
     }
@@ -172,7 +174,7 @@ ApplicationWindow {
         width: Math.min(win.width - T.s64, 416)
         padding: T.s16
         background: Rectangle { color: T.dusk; radius: T.r8; border.width: 1; border.color: T.seam }
-        Overlay.modal: Rectangle { color: "#aa0b0d18" }
+        Overlay.modal: Rectangle { color: T.scrim }
         contentItem: ColumnLayout {
             spacing: T.s16
             RowLayout {
@@ -288,7 +290,7 @@ ApplicationWindow {
                         Accessible.name: modelData.title
                         background: Rectangle {
                             radius: T.r4
-                            color: nav.on ? T.haze : nav.hovered ? Qt.rgba(1, 1, 1, .03) : "transparent"
+                            color: nav.on ? T.haze : nav.hovered ? Qt.alpha(T.haze, .5) : "transparent"
                             border.width: nav.visualFocus ? 1 : 0; border.color: T.fog
                             Rectangle { visible: nav.on; width: T.s2; height: T.s16; radius: T.r2; color: theme.accent
                                 anchors.verticalCenter: parent.verticalCenter }
@@ -325,6 +327,18 @@ ApplicationWindow {
                 Label { text: backend.serverUrl.replace(/^https?:\/\//, ""); color: T.fog; font.pixelSize: T.caption; elide: Text.ElideRight; Layout.fillWidth: true }
                 Label { visible: backend.error !== ""; text: backend.error; color: T.alert; font.pixelSize: T.caption; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 ActionButton { text: "Desconectar"; icon_: "lan-disconnect"; Layout.fillWidth: true; Layout.topMargin: T.s4; onClicked: backend.disconnectServer() }
+
+                // Aparência: automático (segue o sistema), claro ou escuro.
+                RowLayout {
+                    Layout.topMargin: T.s8
+                    spacing: T.s4
+                    Label { text: "Aparência"; color: T.fog; font.pixelSize: T.caption; Layout.fillWidth: true }
+                    Repeater {
+                        model: [{ m: "auto", i: "brightness-auto", t: "Automático: segue o tema do sistema" },
+                                { m: "light", i: "white-balance-sunny", t: "Claro" }, { m: "dark", i: "weather-night", t: "Escuro" }]
+                        IconButton { icon_: modelData.i; tip: modelData.t; selected: shell.themeMode === modelData.m; onClicked: shell.themeMode = modelData.m }
+                    }
+                }
             }
         }
 
@@ -345,7 +359,7 @@ ApplicationWindow {
         anchors.fill: parent
         z: 200
         visible: win.helpVisible
-        color: "#cc0b0d18"
+        color: T.scrim
         MouseArea { anchors.fill: parent; onClicked: win.helpVisible = false }
         Panel {
             anchors.centerIn: parent

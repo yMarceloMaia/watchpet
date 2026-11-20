@@ -18,6 +18,8 @@ class Shell : public QObject {
     Q_PROPERTY(bool startWithSystem READ startWithSystem WRITE setStartWithSystem NOTIFY changed)
     Q_PROPERTY(bool notifyVisits READ notifyVisits WRITE setNotifyVisits NOTIFY changed)
     Q_PROPERTY(bool notifyAlerts READ notifyAlerts WRITE setNotifyAlerts NOTIFY changed)
+    // auto (segue o tema do sistema) | light | dark
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY changed)
 
 public:
     explicit Shell(ServerManager *server, QObject *parent = nullptr);
@@ -35,6 +37,8 @@ public:
     void setNotifyVisits(bool on);
     bool notifyAlerts() const { return m_settings.value("shell/notifyAlerts", true).toBool(); }
     void setNotifyAlerts(bool on);
+    QString themeMode() const { return m_settings.value("shell/themeMode", "auto").toString(); }
+    void setThemeMode(const QString &mode);
 
     Q_INVOKABLE void notify(const QString &title, const QString &body, const QString &level = "info");
     Q_INVOKABLE void quit();
