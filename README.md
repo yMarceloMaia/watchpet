@@ -1,7 +1,8 @@
 # Catwatch (desktop)
 
-Painel leve em Qt Quick para acompanhar os gatos: contagem do dia por gato
-(caixa de areia, comida, água), câmeras ao vivo e histórico de visitas.
+Painel leve em Qt Quick com as mesmas funções do app de celular: contagem do dia e
+dos últimos 7 dias por gato, câmeras ao vivo (adicionar, remover, editar zonas),
+cadastro de gatos (fotos do disco ou da câmera) e histórico com correção.
 É só um cliente: a detecção e a identificação rodam no servidor (`../pet`).
 
 Build: `bin/build` e `build/catwatch`. Instalar no launcher: `bin/install`.
@@ -10,7 +11,7 @@ do servidor, também em `pet/data/token.txt`).
 
 | Tecla | Ação |
 |-------|------|
-| 1 / 2 / 3 | Hoje · Câmeras · Histórico |
+| 1 / 2 / 3 / 4 | Hoje · Câmeras · Gatos · Histórico |
 | R | Atualizar |
 | ? | Atalhos |
 | Q | Sair |
