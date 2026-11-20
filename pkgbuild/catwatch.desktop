@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Catwatch
+Comment=Monitor the cats: litter box, food and water
+Comment[pt_BR]=Monitora os gatos: caixa de areia, comida e água
+Exec=catwatch
+Icon=catwatch
+Terminal=false
+Categories=Utility;
+StartupWMClass=catwatch
