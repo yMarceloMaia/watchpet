@@ -19,6 +19,10 @@ class Backend : public QObject {
     Q_PROPERTY(QVariantList cats READ cats NOTIFY dataChanged)
     Q_PROPERTY(int frame READ frame NOTIFY frameChanged)
     Q_PROPERTY(int catsRevision READ catsRevision NOTIFY dataChanged)
+    Q_PROPERTY(bool uploading READ uploading NOTIFY uploadChanged)
+    Q_PROPERTY(int uploadTotal READ uploadTotal NOTIFY uploadChanged)
+    Q_PROPERTY(int uploadDone READ uploadDone NOTIFY uploadChanged)
+    Q_PROPERTY(QString uploadCat READ uploadCat NOTIFY uploadChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -33,6 +37,10 @@ public:
     QVariantList cats() const { return m_cats; }
     int frame() const { return m_frame; }
     int catsRevision() const { return m_catsRevision; }
+    bool uploading() const { return m_uploading; }
+    int uploadTotal() const { return m_upTotal; }
+    int uploadDone() const { return m_upDone; }
+    QString uploadCat() const { return m_upCat; }
 
     Q_INVOKABLE void connectTo(const QString &url, const QString &token);
     Q_INVOKABLE void disconnectServer();
@@ -67,6 +75,7 @@ signals:
     void errorChanged();
     void dataChanged();
     void frameChanged();
+    void uploadChanged();
     // Resultado de uma ação do usuário (sucesso ou o motivo da falha), para mostrar na janela.
     void message(const QString &text, bool isError);
 
@@ -74,6 +83,7 @@ private:
     QNetworkReply *get(const QString &path);
     QNetworkRequest request(const QString &path) const;
     void setError(const QString &e);
+    void nextUpload();
     void finishAction(QNetworkReply *reply, const QString &okText);
     void send(const QString &method, const QString &path, const QByteArray &body = {}, const QString &okText = {});
     static QString enc(const QString &s) { return QString::fromUtf8(QUrl::toPercentEncoding(s)); }
@@ -85,4 +95,11 @@ private:
     bool m_connected = false;
     int m_frame = 0, m_catsRevision = 0;
     QVariantList m_today, m_week, m_recent, m_cameras, m_cats;
+
+    // Fila de envio de fotos: uma por vez, para o progresso andar foto a foto e o servidor não engasgar.
+    struct Upload { QString cat, path; };
+    QList<Upload> m_queue;
+    bool m_uploading = false;
+    int m_upTotal = 0, m_upDone = 0;
+    QString m_upCat, m_upError;
 };

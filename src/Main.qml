@@ -69,6 +69,45 @@ ApplicationWindow {
 
     ZoneEditor { id: zoneEditor; objectName: "zoneEditor" }
 
+    // Progresso do envio de fotos: bloqueia a janela até terminar, para ninguém clicar achando que travou.
+    Popup {
+        id: uploadPopup
+        objectName: "uploadPopup"
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(win.width - 48, 400)
+        padding: 20
+        background: Rectangle { color: "#1b1b1f"; radius: theme.radius; border.color: "#ffffff1f" }
+        Overlay.modal: Rectangle { color: "#000000aa" }
+        contentItem: ColumnLayout {
+            spacing: 12
+            RowLayout {
+                spacing: 12
+                BusyIndicator { running: uploadPopup.visible; implicitWidth: 36; implicitHeight: 36 }
+                Label { text: "Processando fotos de " + backend.uploadCat + "…"; font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                from: 0; to: Math.max(1, backend.uploadTotal)
+                value: backend.uploadDone
+            }
+            Label {
+                text: backend.uploadDone + " de " + backend.uploadTotal + " — o servidor está analisando cada foto"
+                opacity: .6
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+        }
+    }
+    Connections {
+        target: backend
+        function onUploadChanged() {
+            if (backend.uploading && !uploadPopup.visible) uploadPopup.open()
+            else if (!backend.uploading && uploadPopup.visible) uploadPopup.close()
+        }
+    }
+
     Dialog {
         id: confirm
         property string text
