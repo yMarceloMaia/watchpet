@@ -139,7 +139,7 @@ void Backend::refresh() {
     struct Job { QString path; QVariantList Backend::*target; QStringList pivotKeys; };
     const QList<Job> jobs{{"/api/today", &Backend::m_today, {"cat"}},
                           {"/api/stats?days=7", &Backend::m_week, {"day", "cat"}},
-                          {"/api/recent?limit=100", &Backend::m_recent, {}},
+                          {"/api/recent?limit=300", &Backend::m_recent, {}},
                           {"/api/cameras", &Backend::m_cameras, {}},
                           {"/api/cats", &Backend::m_cats, {}}};
     auto *st = get("/api/status");

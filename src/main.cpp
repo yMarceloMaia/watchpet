@@ -21,6 +21,8 @@ int main(int argc, char *argv[]) {
     app.setWindowIcon(QIcon::fromTheme("catwatch", QIcon(":/icon.svg")));
     // Fechar a janela não encerra o app quando ele fica na bandeja; o QML decide.
     app.setQuitOnLastWindowClosed(false);
+    // Variante densa do Material: campos e listas mais baixos, num ritmo de 8 em 8.
+    qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", "Dense");
     QQuickStyle::setStyle("Material");
 
     // --background: aberto pelo login (iniciar com o sistema); começa só na bandeja.

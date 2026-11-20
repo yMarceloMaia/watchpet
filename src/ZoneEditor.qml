@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import "."
 
 // Desenha as zonas (caixa de areia, comida, água) por cima de uma imagem da câmera.
 Popup {
@@ -12,14 +13,14 @@ Popup {
     anchors.centerIn: Overlay.overlay
     width: Overlay.overlay ? Overlay.overlay.width - 40 : 800
     height: Overlay.overlay ? Overlay.overlay.height - 40 : 600
-    padding: 14
-    background: Rectangle { color: "#16161a"; radius: theme.radius; border.color: "#ffffff1f" }
+    padding: T.s16
+    background: Rectangle { color: T.dusk; radius: T.r8; border.width: 1; border.color: T.seam }
 
     property string camera: ""
     property var zones: []
     property var cur: []
     readonly property var kindNames: ({ litter: "Caixa de areia", food: "Comida", water: "Água" })
-    readonly property var kindColors: ({ litter: "#ff9f0a", food: "#30d158", water: "#0a84ff" })
+    readonly property var kindColors: ({ litter: String(T.sand), food: String(T.paw), water: String(T.pool) })
 
     function openFor(cam) {
         camera = cam.name
@@ -43,9 +44,9 @@ Popup {
     }
 
     contentItem: ColumnLayout {
-        spacing: 8
-        Label { text: "Zonas — " + root.camera; font.pixelSize: 18; font.bold: true }
-        Label { text: "Clique na imagem para marcar os cantos da área e depois em “Fechar zona”."; opacity: .6 }
+        spacing: T.s8
+        Label { text: "Zonas da câmera " + root.camera; font.pixelSize: T.title; font.weight: Font.DemiBold; color: T.moon }
+        Label { text: "Clique na imagem para marcar os cantos da área. Com 3 cantos ou mais, dê um nome e feche a zona."; color: T.fog }
 
         Item {
             Layout.fillWidth: true
@@ -81,15 +82,15 @@ Popup {
                     root.zones.forEach(z => {
                         const col = root.kindColors[z.kind]
                         path(z.polygon, true)
-                        c.fillStyle = col + "55"; c.fill()
+                        c.fillStyle = col; c.globalAlpha = .33; c.fill(); c.globalAlpha = 1
                         c.strokeStyle = col; c.lineWidth = 2; c.stroke()
                     })
                     if (root.cur.length) {
                         path(root.cur, false)
-                        c.strokeStyle = "#00e5ff"; c.lineWidth = 2; c.stroke()
+                        c.strokeStyle = String(T.moon); c.lineWidth = 2; c.stroke()
                         root.cur.forEach(p => {
                             const q = px(p)
-                            c.beginPath(); c.arc(q[0], q[1], 5, 0, 7); c.fillStyle = "#00e5ff"; c.fill()
+                            c.beginPath(); c.arc(q[0], q[1], 5, 0, 7); c.fillStyle = String(T.moon); c.fill()
                         })
                     }
                 }
@@ -108,7 +109,7 @@ Popup {
         }
 
         RowLayout {
-            spacing: 8
+            spacing: T.s8
             TextField { id: zoneName; placeholderText: "Nome da zona (ex: bebedouro)"; Layout.fillWidth: true }
             ComboBox {
                 id: kindBox
@@ -116,14 +117,14 @@ Popup {
                 textRole: "text"; valueRole: "value"
                 model: [{ text: "Caixa de areia", value: "litter" }, { text: "Comida", value: "food" }, { text: "Água", value: "water" }]
             }
-            Button { text: "Fechar zona"; onClicked: root.closeZone() }
-            Button { text: "Desfazer ponto"; flat: true; onClicked: { root.cur = root.cur.slice(0, -1); canvas.requestPaint() } }
+            ActionButton { text: "Fechar zona"; icon_: "vector-polygon"; onClicked: root.closeZone() }
+            ActionButton { text: "Desfazer ponto"; icon_: "restart"; onClicked: { root.cur = root.cur.slice(0, -1); canvas.requestPaint() } }
         }
-        Label { id: hint; color: "#ff453a"; visible: text !== "" }
+        Label { id: hint; color: T.alert; visible: text !== "" }
 
         Flow {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: T.s8
             Repeater {
                 model: root.zones
                 Button {
@@ -136,8 +137,8 @@ Popup {
         }
 
         RowLayout {
-            Button { text: "Salvar zonas"; highlighted: true; onClicked: { backend.setZones(root.camera, root.zones); root.close() } }
-            Button { text: "Cancelar"; flat: true; onClicked: root.close() }
+            ActionButton { text: "Salvar zonas"; icon_: "content-save"; primary: true; onClicked: { backend.setZones(root.camera, root.zones); root.close() } }
+            ActionButton { text: "Cancelar"; onClicked: root.close() }
         }
     }
 }

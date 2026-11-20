@@ -1,8 +1,26 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="qmldir">qmldir</file>
+        <file alias="T.qml">T.qml</file>
         <file alias="Main.qml">Main.qml</file>
-        <file alias="ZoneEditor.qml">ZoneEditor.qml</file>
+        <file alias="Icon.qml">Icon.qml</file>
+        <file alias="Panel.qml">Panel.qml</file>
+        <file alias="PageHeader.qml">PageHeader.qml</file>
+        <file alias="KindTag.qml">KindTag.qml</file>
+        <file alias="IconButton.qml">IconButton.qml</file>
+        <file alias="ActionButton.qml">ActionButton.qml</file>
+        <file alias="DayStrip.qml">DayStrip.qml</file>
+        <file alias="TodayPage.qml">TodayPage.qml</file>
+        <file alias="CamerasPage.qml">CamerasPage.qml</file>
+        <file alias="CatsPage.qml">CatsPage.qml</file>
+        <file alias="HistoryPage.qml">HistoryPage.qml</file>
         <file alias="ServerPage.qml">ServerPage.qml</file>
+        <file alias="ZoneEditor.qml">ZoneEditor.qml</file>
         <file alias="icon.svg">icon.svg</file>
+        <file alias="fonts/Recursive_400Regular.ttf">fonts/Recursive_400Regular.ttf</file>
+        <file alias="fonts/Recursive_500Medium.ttf">fonts/Recursive_500Medium.ttf</file>
+        <file alias="fonts/Recursive_600SemiBold.ttf">fonts/Recursive_600SemiBold.ttf</file>
+        <file alias="fonts/Recursive_700Bold.ttf">fonts/Recursive_700Bold.ttf</file>
+        <file alias="fonts/MaterialCommunityIcons.ttf">fonts/MaterialCommunityIcons.ttf</file>
     </qresource>
 </RCC>
