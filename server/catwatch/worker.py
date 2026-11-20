@@ -7,9 +7,12 @@ import cv2
 import numpy as np
 
 from . import db as dbm
+from . import overlay
 from .camera import Camera
 from .config import visit_rules
-from .visits import VisitTracker, point_in_polygon
+from .vision import UNKNOWN
+from .visits import HOLD_SECONDS, VisitTracker
+from .zones import ZoneMap
 
 
 class Pipeline:
@@ -49,51 +52,50 @@ class Pipeline:
     # --- pipeline ---
     def _loop(self, cam, ccfg):
         seen_ts = 0
+        zmap = ZoneMap()
+        next_at = time.monotonic()
         while self.cams.get(cam.name) is cam:
-            time.sleep(1 / self.cfg["detection"]["fps"])  # lido a cada volta: muda na hora pelas configurações
+            # Ritmo pelo relógio, não "dorme 1/fps depois de analisar": assim o tempo de análise
+            # não come os quadros por segundo configurados (lido a cada volta: muda na hora).
+            period = 1 / self.cfg["detection"]["fps"]
+            next_at = max(next_at + period, time.monotonic())
+            time.sleep(max(0.0, next_at - time.monotonic()))
+            # Sem quadros vizinhos a menos de 1 período, a presença não somaria nada.
+            self.tracker.hold = max(HOLD_SECONDS, 3 * period)
             if cam.frame is None or cam.ts == seen_ts:
                 self._save_flush(time.time())
                 continue
             seen_ts, frame, now = cam.ts, cam.frame.copy(), cam.ts
             h, w = frame.shape[:2]
-            updates = []
+            zones = ccfg["zones"]
+            updates, cats = [], []
             with self._infer:
                 t0 = time.perf_counter()
-                boxes = self.detector(frame)
-                for box in boxes:
-                    x1, y1, x2, y2, conf = box
-                    fx, fy = (x1 + x2) / 2 / w, y2 / h   # pé do gato: ponto mais confiável no chão
-                    zones = [z for z in ccfg["zones"] if point_in_polygon(fx, fy, z["polygon"])]
-                    cat, sim = None, 0.0
-                    if zones:
+                for x1, y1, x2, y2, conf in self.detector(frame):
+                    box = (x1, y1, x2, y2)
+                    zone = zmap.zone_for(box, zones, w, h)   # no máximo uma zona por gato
+                    name, sim = None, 0.0
+                    if zone:
                         crop = frame[max(y1, 0):y2, max(x1, 0):x2]
                         if crop.size:
-                            cat, sim = self.identifier(crop)
-                    updates.extend((z, cat, sim, conf) for z in zones)
-                    self._draw(frame, box[:4], cat, sim if zones else None)
+                            name, sim = self.identifier(crop)
+                        if name == UNKNOWN:
+                            name = None
+                        updates.append((zone, name, sim, conf))
+                    cats.append((box, name, sim, zone is not None))
                 ms = (time.perf_counter() - t0) * 1000
                 self.infer_ms = ms if not self.frames_analyzed else self.infer_ms * 0.9 + ms * 0.1
                 self.frames_analyzed += 1
-            for z in ccfg["zones"]:
-                pts = [(int(x * w), int(y * h)) for x, y in z["polygon"]]
-                cv2.polylines(frame, [np.array(pts)], True, (255, 160, 0), 1)
             stamp = f"{cam.name}  {time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(now))}"
-            cv2.putText(frame, stamp, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3)
-            cv2.putText(frame, stamp, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+            overlay.draw(frame, zones, {z["name"] for z, *_ in updates}, cats, stamp)
             # O quadro anotado vira a foto da visita (o tracker guarda o melhor).
-            for z, cat, sim, conf in updates:
-                self.tracker.update(cam.name, z["name"], cat, now, z["kind"], sim, frame, conf)
+            for z, name, sim, conf in updates:
+                self.tracker.update(cam.name, z["name"], name, now, z["kind"], sim, frame, conf)
             self.last_annotated[cam.name] = frame
             self._save_flush(now)
 
-    def _draw(self, frame, box, cat, sim=None):
-        label = (cat or "gato") + (f" {sim:.2f}" if sim else "")
-        cv2.rectangle(frame, box[:2], box[2:], (0, 200, 0), 2)
-        cv2.putText(frame, label, (box[0] + 4, box[1] - 6 if box[1] > 20 else box[1] + 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 0), 2)
-
-    def _save_flush(self, now):
-        for v in self.tracker.flush(now):
+    def _save_flush(self, now, force=False):
+        for v in self.tracker.flush(now, force):
             frame = v.pop("frame")
             vid = dbm.add_visit(self.db, v["cat"], v["kind"] or "litter", v["zone"], v["camera"],
                                 v["start"], v["end"], v["score"], v["conf"], v["frames"],

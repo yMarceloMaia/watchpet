@@ -35,6 +35,35 @@ class CatDetector:
         return [(*map(int, b), float(c)) for b, c in zip(r.boxes.xyxy.tolist(), r.boxes.conf.tolist())]
 
 
+UNKNOWN = "desconhecido"
+INPUT = 224          # lado da imagem que a ResNet recebe
+MIN_CROP = 48        # gato menor que isso (em pixels) está longe demais para dizer quem é
+MARGIN = 0.03        # o melhor gato precisa ganhar do segundo por pelo menos isto
+MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+STD = np.array([0.229, 0.224, 0.225], np.float32)
+
+
+def pick(names: list[str], sims: np.ndarray, threshold: float, margin: float = MARGIN) -> tuple[str, float]:
+    """Decide o gato a partir das similaridades com cada foto da galeria.
+
+    A nota de cada gato é a da foto dele mais parecida: não depende de quantas fotos ele
+    tem (a média das 3 melhores favorecia quem tinha só 1). Só dá o nome se a nota passar
+    do limite E ganhar do segundo gato por uma margem; empate técnico é "desconhecido",
+    e o voto fica com o gato que lidera a visita. Devolve (nome, nota do mais parecido).
+    """
+    if not len(names):
+        return UNKNOWN, 0.0
+    per_cat: dict[str, float] = {}
+    for n, s in zip(names, sims):
+        per_cat[n] = max(per_cat.get(n, -1.0), float(s))
+    ranked = sorted(per_cat.items(), key=lambda kv: kv[1], reverse=True)
+    best, top = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else -1.0
+    if top < threshold or top - second < margin:
+        return UNKNOWN, top
+    return best, top
+
+
 class CatIdentifier:
     def __init__(self, gallery_dir: str, threshold: float, device: str = "cpu"):
         w = torchvision.models.ResNet50_Weights.DEFAULT
@@ -42,17 +71,34 @@ class CatIdentifier:
         self.net = torchvision.models.resnet50(weights=w)
         self.net.fc = torch.nn.Identity()
         self.net.eval().to(device)
-        self.tf = w.transforms()
         self.threshold = threshold
-        self.names: list[str] = []
-        self.vecs = np.zeros((0, 2048), dtype=np.float32)
+        # (nomes, vetores) trocados juntos numa atribuição só: quem lê em outra thread
+        # nunca vê nomes de uma galeria com vetores de outra.
+        self.gallery: tuple[list[str], np.ndarray] = ([], np.zeros((0, 2048), np.float32))
         self.load(gallery_dir)
+
+    @property
+    def names(self) -> list[str]:
+        return self.gallery[0]
+
+    @staticmethod
+    def prepare(bgr) -> np.ndarray:
+        """Gato inteiro num quadrado: completa as bordas em vez de cortar o centro
+        (um gato deitado perdia a cabeça e o rabo no recorte central da ResNet)."""
+        h, w = bgr.shape[:2]
+        side = max(h, w)
+        top, left = (side - h) // 2, (side - w) // 2
+        sq = cv2.copyMakeBorder(bgr, top, side - h - top, left, side - w - left, cv2.BORDER_CONSTANT, value=(124, 116, 104))
+        sq = cv2.resize(sq, (INPUT, INPUT), interpolation=cv2.INTER_AREA)
+        rgb = cv2.cvtColor(sq, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        return ((rgb - MEAN) / STD).transpose(2, 0, 1)
 
     @torch.no_grad()
     def embed(self, bgr) -> np.ndarray:
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        t = torch.from_numpy(rgb).permute(2, 0, 1)
-        v = self.net(self.tf(t).unsqueeze(0).to(self.device))[0].cpu().numpy()
+        """Vetor do gato, média com a imagem espelhada: virado para o outro lado é o mesmo gato."""
+        x = self.prepare(bgr)
+        batch = torch.from_numpy(np.stack([x, x[:, :, ::-1].copy()])).to(self.device)
+        v = self.net(batch).mean(0).cpu().numpy()
         return v / (np.linalg.norm(v) + 1e-9)
 
     def load(self, gallery_dir: str):
@@ -60,32 +106,28 @@ class CatIdentifier:
         for d in sorted(Path(gallery_dir).iterdir()) if Path(gallery_dir).exists() else []:
             if not d.is_dir():
                 continue
-            for img in d.glob("*"):
+            for img in sorted(d.glob("*")):
                 im = cv2.imread(str(img))
                 if im is not None:
                     names.append(d.name)
                     vecs.append(self.embed(im))
-        self.names = names
-        self.vecs = np.array(vecs, dtype=np.float32) if vecs else np.zeros((0, 2048), np.float32)
+        self.gallery = (names, np.array(vecs, np.float32) if vecs else np.zeros((0, 2048), np.float32))
 
     def add(self, name: str, bgr) -> None:
         """Inclui uma foto nova sem reanalisar a galeria inteira."""
-        vecs = np.vstack([self.vecs, self.embed(bgr)[None, :]])
-        # vecs primeiro: quem estiver lendo em outra thread nunca vê mais nomes do que vetores.
-        self.vecs, self.names = vecs, self.names + [name]
+        names, vecs = self.gallery
+        self.gallery = (names + [name], np.vstack([vecs, self.embed(bgr)[None, :]]))
+
+    def remove(self, name: str) -> None:
+        """Tira um gato da galeria sem reanalisar as fotos dos outros."""
+        names, vecs = self.gallery
+        keep = [i for i, n in enumerate(names) if n != name]
+        self.gallery = ([names[i] for i in keep], vecs[keep] if keep else np.zeros((0, 2048), np.float32))
 
     def __call__(self, crop) -> tuple[str, float]:
-        """Devolve (nome, similaridade). A similaridade é a do gato mais parecido, mesmo se
-        abaixo do limite, para dar pra ver o quão perto de acertar o sistema ficou."""
-        if not len(self.names):
-            return "desconhecido", 0.0
-        names, vecs = self.names, self.vecs
-        sims = vecs[: len(names)] @ self.embed(crop)
-        # média das 3 melhores similaridades por gato, mais estável que o máximo
-        best, best_s, top = "desconhecido", self.threshold, 0.0
-        for n in set(names):
-            s = float(np.sort(sims[[i for i, x in enumerate(names) if x == n]])[-3:].mean())
-            top = max(top, s)
-            if s > best_s:
-                best, best_s = n, s
-        return best, top
+        """Devolve (nome, similaridade do gato mais parecido). Gato pequeno demais na imagem
+        não é identificado: o recorte não tem detalhe e o palpite seria quase aleatório."""
+        names, vecs = self.gallery
+        if not names or min(crop.shape[:2]) < MIN_CROP:
+            return UNKNOWN, 0.0
+        return pick(names, vecs @ self.embed(crop), self.threshold)

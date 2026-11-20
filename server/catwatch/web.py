@@ -52,6 +52,12 @@ def auth(request: Request, x_token: str | None = Header(None), token: str | None
 
 
 app = FastAPI(title="catwatch")
+
+
+@app.on_event("shutdown")
+def save_open_visits():
+    """Servidor encerrando: grava as visitas em andamento (quem estava na caixa ainda conta)."""
+    pipe._save_flush(time.time(), force=True)
 api = Depends(auth)
 
 
@@ -281,7 +287,7 @@ def del_cat(name: str):
     if not d.is_dir():
         raise HTTPException(404)
     shutil.rmtree(d)
-    pipe.identifier.load(cfg["gallery"])
+    pipe.identifier.remove(d.name)
     return {"ok": True}
 
 

@@ -45,6 +45,15 @@ comida e 10 s na água.
 
 Quadros em que a identificação falha ("desconhecido") e trocas raras de nome contam para
 o gato que lidera a visita. Dois gatos juntos na mesma imagem são contados cada um.
+
+**Em qual zona:** os pés do gato dentro do polígono, ou boa parte da metade de baixo dele
+(câmera vista de cima). Cada gato conta em uma zona só por vez; com comedouro e bebedouro
+lado a lado, vence a zona onde ele está mais.
+
+**Quem é o gato:** o recorte do gato inteiro (sem cortar as pontas), comparado também
+espelhado, contra cada foto da galeria. Ganha o gato da foto mais parecida, se passar do
+limite de similaridade e ganhar do segundo por uma margem; senão, "desconhecido". Gatos
+muito pequenos na imagem (longe da câmera) não recebem nome.
 Tudo ajustável no app de PC (Servidor → Configurações → Visitas) ou em `visits:` no `config.yaml`.
 
 ## Limites

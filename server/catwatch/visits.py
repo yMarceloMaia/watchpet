@@ -5,6 +5,7 @@ do que ele foi fazer (usar a caixa demora mais que beber água). O tempo que con
 presença real, somando só os intervalos em que ele foi visto quadro após quadro: passar
 pela zona, ou aparecer duas vezes com segundos de diferença, não vira visita.
 """
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -81,6 +82,8 @@ class VisitTracker:
         self.gap_seconds = _per_kind(GAP_SECONDS if gap_seconds is None else gap_seconds, GAP_SECONDS)
         self.hold = hold
         self.open: dict[tuple[str, str], _Open] = {}
+        # Cada câmera roda numa thread e todas atualizam e fecham visitas aqui.
+        self._lock = threading.Lock()
 
     def configure(self, min_seconds, gap_seconds):
         self.min_seconds = _per_kind(min_seconds, MIN_SECONDS)
@@ -99,6 +102,10 @@ class VisitTracker:
         score = similaridade da identificação; frame = imagem já anotada. Guardamos o quadro
         com a melhor evidência (maior similaridade, ou maior confiança de detecção) como foto.
         """
+        with self._lock:
+            self._update(camera, zone, cat, now, kind, score, frame, conf)
+
+    def _update(self, camera, zone, cat, now, kind, score, frame, conf):
         v = self.open.setdefault((camera, zone), _Open(now))
         v.last = max(v.last, now)
         v.kind = kind or v.kind
@@ -138,7 +145,12 @@ class VisitTracker:
         return out
 
     def flush(self, now: float, force: bool = False) -> list[dict]:
-        """Fecha as visitas sem o gato há gap_seconds (do tipo da zona) e devolve as que valem."""
+        """Fecha as visitas sem o gato há gap_seconds (do tipo da zona) e devolve as que valem.
+        force=True fecha todas (servidor encerrando: quem estava na caixa ainda conta)."""
+        with self._lock:
+            return self._flush(now, force)
+
+    def _flush(self, now: float, force: bool) -> list[dict]:
         done = []
         for key in list(self.open):
             v = self.open[key]
