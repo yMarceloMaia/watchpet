@@ -13,6 +13,11 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#ifdef Q_OS_LINUX
+#include <csignal>
+#include <sys/prctl.h>
+#endif
+
 ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("catwatch", "catwatch") {
     m_process.setProcessChannelMode(QProcess::MergedChannels);
     connect(&m_process, &QProcess::readyRead, this, [this] {
@@ -198,6 +203,11 @@ void ServerManager::start() {
         env.insert("PYTHONPATH", dir);
         env.insert("PYTHONUNBUFFERED", "1");
         m_process.setProcessEnvironment(env);
+#ifdef Q_OS_LINUX
+        // Se o app morrer de qualquer jeito (até kill -9), o kernel manda SIGTERM ao servidor,
+        // que fecha o banco direito, em vez de deixá-lo órfão ocupando a porta e a placa de vídeo.
+        m_process.setChildProcessModifier([] { ::prctl(PR_SET_PDEATHSIG, SIGTERM); });
+#endif
         m_process.setWorkingDirectory(dir);
         m_output.clear();
         appendOutput(tr("Iniciando servidor em %1…").arg(dir));
