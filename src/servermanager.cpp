@@ -10,6 +10,7 @@
 #include <QNetworkRequest>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QUrl>
 
 ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("catwatch", "catwatch") {
@@ -81,6 +82,8 @@ QString ServerManager::defaultServerDir() {
     QStringList candidates;
     if (!qEnvironmentVariableIsEmpty("CATWATCH_SERVER_DIR"))
         candidates << qEnvironmentVariable("CATWATCH_SERVER_DIR");
+    // Onde o install.sh coloca o servidor (~/.local/share/catwatch/server).
+    candidates << QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/catwatch/server";
     const QString appDir = QCoreApplication::applicationDirPath();
     candidates << QDir(appDir).filePath("../../pet") << QDir(appDir).filePath("../pet")
                << QDir::home().filePath("projetos/meus/github/pet") << QDir::home().filePath("catwatch");
