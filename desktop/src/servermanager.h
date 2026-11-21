@@ -8,7 +8,8 @@
 #include <QStringList>
 #include <QTimer>
 
-// Liga, desliga e acompanha o servidor Python neste PC (o projeto `pet`).
+// Liga, desliga e acompanha o servidor neste PC. Ele pode ser o projeto Python (pasta com
+// catwatch/ e .venv) ou o executável que vem junto com o app no instalador (server/catwatch-server).
 // Se já houver um servidor rodando na porta (iniciado pelo terminal ou pelo systemd),
 // ele é reconhecido como "externo" e usado do mesmo jeito.
 class ServerManager : public QObject {
@@ -21,6 +22,9 @@ class ServerManager : public QObject {
     Q_PROPERTY(bool serverDirValid READ serverDirValid NOTIFY settingsChanged)
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY settingsChanged)
     Q_PROPERTY(QString output READ output NOTIFY outputChanged)
+    // Servidor executável embutido no app (instalador); os dados ficam em dataDir.
+    Q_PROPERTY(bool bundled READ bundled NOTIFY settingsChanged)
+    Q_PROPERTY(QString dataDir READ dataDir NOTIFY settingsChanged)
 
 public:
     explicit ServerManager(QObject *parent = nullptr);
@@ -37,6 +41,8 @@ public:
     bool autoStart() const { return m_settings.value("server/autoStart", true).toBool(); }
     void setAutoStart(bool on);
     QString output() const { return m_output.join('\n'); }
+    bool bundled() const { return !bundledExe(serverDir()).isEmpty(); }
+    QString dataDir() const;
 
     Q_INVOKABLE void start();
     Q_INVOKABLE void stop();
@@ -52,6 +58,10 @@ public:
 
     static QString defaultServerDir();
     static QString pythonPath(const QString &dir);
+    // O executável do servidor nessa pasta, se ela tiver um (instalação pelo instalador).
+    static QString bundledExe(const QString &dir);
+    // Onde o executável guarda os dados por padrão (%LOCALAPPDATA%\Catwatch no Windows).
+    static QString platformDataDir();
 
 signals:
     void stateChanged();
@@ -74,6 +84,9 @@ private:
     void waitForOther(qint64 pid);
     QString lastServerMessage() const;
     QString readConfigValue(const QString &key) const;
+    // Pede ao servidor para encerrar (só aceito do próprio PC). No Windows é o jeito limpo de
+    // parar o nosso processo: o "terminate" do Qt não alcança programas de console.
+    void requestShutdown();
 
     QSettings m_settings;
     QProcess m_process;
@@ -85,4 +98,7 @@ private:
     qint64 m_otherPid = 0;
     QString m_state = "stopped", m_message;
     QStringList m_output;
+#ifdef Q_OS_WIN
+    void *m_job = nullptr;  // Job Object: o Windows encerra o servidor se o app morrer
+#endif
 };

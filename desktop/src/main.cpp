@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
     // QApplication (e não QGuiApplication) porque o ícone na bandeja e o menu dele são widgets.
     QApplication app(argc, argv);
     app.setApplicationName("catwatch");
-    app.setApplicationVersion("1.1.0");
+    app.setApplicationVersion("1.2.0");
     app.setDesktopFileName("catwatch");
     app.setWindowIcon(QIcon::fromTheme("catwatch", QIcon(":/icon.svg")));
     // Fechar a janela não encerra o app quando ele fica na bandeja; o QML decide.

@@ -174,7 +174,13 @@ Flickable {
                         ActionButton { text: "Painel web"; icon_: "web"; enabled: page.serverOn; onClicked: Qt.openUrlExternally(server.localUrl()) }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: T.seam; Layout.topMargin: T.s8 }
+                    Label {
+                        visible: server.bundled
+                        text: "Servidor incluído no app. Os dados ficam em " + server.dataDir
+                        color: T.fog; wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
                     RowLayout {
+                        visible: !server.bundled
                         Layout.fillWidth: true
                         spacing: T.s8
                         TextField {
@@ -186,7 +192,7 @@ Flickable {
                         ActionButton { text: "Escolher"; icon_: "folder-open"; onClicked: folderDialog.open() }
                     }
                     Label {
-                        visible: !server.serverDirValid
+                        visible: !server.serverDirValid && !server.bundled
                         text: "Essa pasta não tem o servidor. Ela precisa ter catwatch/ e o ambiente .venv instalado."
                         color: T.alert; wrapMode: Text.Wrap; Layout.fillWidth: true
                     }

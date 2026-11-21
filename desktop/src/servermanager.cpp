@@ -13,20 +13,47 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include <QEventLoop>
+
 #ifdef Q_OS_LINUX
 #include <csignal>
 #include <sys/prctl.h>
 #endif
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("catwatch", "catwatch") {
     m_process.setProcessChannelMode(QProcess::MergedChannels);
+#ifdef Q_OS_WIN
+    // Equivalente ao PR_SET_PDEATHSIG do Linux: com o app fechado (até à força), o Windows
+    // encerra os processos do job, e o servidor não fica órfão ocupando a porta.
+    if (HANDLE job = CreateJobObjectW(nullptr, nullptr)) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info, sizeof info);
+        m_job = job;
+    }
+    connect(&m_process, &QProcess::started, this, [this] {
+        if (!m_job)
+            return;
+        if (HANDLE proc = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, DWORD(m_process.processId()))) {
+            AssignProcessToJobObject(static_cast<HANDLE>(m_job), proc);
+            CloseHandle(proc);
+        }
+    });
+    // Servidor sem janela de console: o app mostra a saída dele na aba Servidor.
+    m_process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+#endif
     connect(&m_process, &QProcess::readyRead, this, [this] {
         appendOutput(QString::fromUtf8(m_process.readAll()));
     });
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart) {
             m_wait.stop();
-            setState("error", tr("Não consegui iniciar o Python: %1").arg(m_process.errorString()));
+            setState("error", tr("Não consegui iniciar o servidor: %1").arg(m_process.errorString()));
         }
     });
     connect(&m_process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
@@ -117,7 +144,33 @@ ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("cat
     });
 }
 
-ServerManager::~ServerManager() { shutdownOwned(); }
+ServerManager::~ServerManager() {
+    shutdownOwned();
+#ifdef Q_OS_WIN
+    if (m_job)
+        CloseHandle(static_cast<HANDLE>(m_job));
+#endif
+}
+
+QString ServerManager::bundledExe(const QString &dir) {
+#ifdef Q_OS_WIN
+    const QString exe = QDir(dir).filePath("catwatch-server.exe");
+#else
+    const QString exe = QDir(dir).filePath("catwatch-server");
+#endif
+    return !dir.isEmpty() && QFileInfo(exe).isFile() ? exe : QString();
+}
+
+QString ServerManager::platformDataDir() {
+    // Os mesmos caminhos que o executável usa quando não recebe --data-dir.
+#ifdef Q_OS_WIN
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/Catwatch";
+#else
+    return QDir::home().filePath(".local/share/catwatch/server");
+#endif
+}
+
+QString ServerManager::dataDir() const { return bundled() ? platformDataDir() : serverDir(); }
 
 QString ServerManager::pythonPath(const QString &dir) {
 #ifdef Q_OS_WIN
@@ -132,6 +185,10 @@ QString ServerManager::defaultServerDir() {
     QStringList candidates;
     if (!qEnvironmentVariableIsEmpty("CATWATCH_SERVER_DIR"))
         candidates << qEnvironmentVariable("CATWATCH_SERVER_DIR");
+    // Instalador: o servidor executável vai numa pasta "server" ao lado do app.
+    const QString bundledDir = QDir(QCoreApplication::applicationDirPath()).filePath("server");
+    if (!bundledExe(bundledDir).isEmpty())
+        return QDir(bundledDir).canonicalPath();
     // Onde o install.sh coloca o servidor (~/.local/share/catwatch/server).
     candidates << QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/catwatch/server";
     const QString appDir = QCoreApplication::applicationDirPath();
@@ -152,6 +209,8 @@ void ServerManager::setServerDirUrl(const QString &url) { setServerDir(QUrl(url)
 
 bool ServerManager::serverDirValid() const {
     const QString dir = serverDir();
+    if (!bundledExe(dir).isEmpty())
+        return true;
     return !dir.isEmpty() && QFileInfo::exists(QDir(dir).filePath("catwatch/__main__.py"))
            && QFileInfo::exists(pythonPath(dir));
 }
@@ -163,7 +222,7 @@ void ServerManager::setAutoStart(bool on) {
 
 // Leitura mínima do config.yaml: só precisamos da porta e de onde fica o token.
 QString ServerManager::readConfigValue(const QString &key) const {
-    QFile f(QDir(serverDir()).filePath("config.yaml"));
+    QFile f(QDir(dataDir()).filePath("config.yaml"));
     if (!f.open(QIODevice::ReadOnly))
         return {};
     const QRegularExpression re("^\\s*" + QRegularExpression::escape(key) + ":\\s*['\"]?([^'\"\\s#]+)",
@@ -182,7 +241,7 @@ QString ServerManager::localToken() const {
     QString db = readConfigValue("db");
     if (db.isEmpty())
         db = "data/catwatch.db";
-    QFile f(QDir(serverDir()).filePath(QFileInfo(db).path() + "/token.txt"));
+    QFile f(QDir(dataDir()).filePath(QFileInfo(db).path() + "/token.txt"));
     return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()).trimmed() : QString();
 }
 
@@ -242,7 +301,7 @@ void ServerManager::detect(bool forceStart) {
 }
 
 qint64 ServerManager::otherServerPid() const {
-    QFile f(QDir(serverDir()).filePath(".catwatch.lock"));
+    QFile f(QDir(dataDir()).filePath(".catwatch.lock"));
     if (!f.open(QIODevice::ReadOnly))
         return 0;
     const qint64 pid = QString::fromUtf8(f.readAll()).trimmed().toLongLong();
@@ -297,6 +356,9 @@ void ServerManager::start() {
             return;
         }
         const QString dir = serverDir();
+        const QString exe = bundledExe(dir);
+        const QString data = dataDir();
+        QDir().mkpath(data);
         auto env = QProcessEnvironment::systemEnvironment();
         env.insert("PYTHONPATH", dir);
         env.insert("PYTHONUNBUFFERED", "1");
@@ -306,10 +368,13 @@ void ServerManager::start() {
         // que fecha o banco direito, em vez de deixá-lo órfão ocupando a porta e a placa de vídeo.
         m_process.setChildProcessModifier([] { ::prctl(PR_SET_PDEATHSIG, SIGTERM); });
 #endif
-        m_process.setWorkingDirectory(dir);
+        m_process.setWorkingDirectory(data);
         m_output.clear();
-        appendOutput(tr("Iniciando servidor em %1…").arg(dir));
-        m_process.start(pythonPath(dir), {"-m", "catwatch", "--data-dir", dir});
+        appendOutput(tr("Iniciando servidor (dados em %1)…").arg(QDir::toNativeSeparators(data)));
+        if (!exe.isEmpty())
+            m_process.start(exe, {"--data-dir", data});
+        else
+            m_process.start(pythonPath(dir), {"-m", "catwatch", "--data-dir", dir});
         setState("starting", tr("Carregando os modelos de IA (pode levar até 1 minuto)…"));
         m_waitedSeconds = 0;
         m_wait.start();
@@ -326,8 +391,12 @@ void ServerManager::stop() {
     }
     if (owned()) {
         setState("stopping", tr("Encerrando…"));
+#ifdef Q_OS_WIN
+        requestShutdown();
+#else
         m_process.terminate();  // SIGTERM: o uvicorn fecha as conexões e o banco direito
-        QTimer::singleShot(8000, this, [this] {
+#endif
+        QTimer::singleShot(10000, this, [this] {
             if (owned())
                 m_process.kill();
         });
@@ -336,10 +405,7 @@ void ServerManager::stop() {
     if (m_state != "external" && m_state != "running")
         return;
     // Servidor que não fomos nós que abrimos: pede para ele se encerrar (só aceito do próprio PC).
-    QNetworkRequest req(QUrl(localUrl() + "/api/shutdown"));
-    req.setRawHeader("X-Token", localToken().toUtf8());
-    auto *reply = m_net.post(req, QByteArray());
-    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+    requestShutdown();
     setState("stopping", tr("Encerrando…"));
     m_waitedSeconds = 0;
     m_wait.start();
@@ -354,11 +420,31 @@ void ServerManager::restart() {
     stop();
 }
 
+void ServerManager::requestShutdown() {
+    QNetworkRequest req(QUrl(localUrl() + "/api/shutdown"));
+    req.setRawHeader("X-Token", localToken().toUtf8());
+    req.setTransferTimeout(3000);
+    auto *reply = m_net.post(req, QByteArray());
+    connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+}
+
 void ServerManager::shutdownOwned() {
     if (!owned())
         return;
     m_state = "stopping";
+#ifdef Q_OS_WIN
+    // O app está saindo: espera a resposta do pedido de encerramento antes de seguir.
+    QNetworkRequest req(QUrl(localUrl() + "/api/shutdown"));
+    req.setRawHeader("X-Token", localToken().toUtf8());
+    req.setTransferTimeout(3000);
+    QEventLoop loop;
+    auto *reply = m_net.post(req, QByteArray());
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    reply->deleteLater();
+#else
     m_process.terminate();
-    if (!m_process.waitForFinished(8000))
+#endif
+    if (!m_process.waitForFinished(10000))
         m_process.kill();
 }

@@ -32,7 +32,7 @@ from .monitor import Monitor
 from .vision import CatDetector, CatIdentifier, gpu_memory_mb, gpu_name, resolve_device
 from .worker import Pipeline
 
-VERSION = "1.1"
+VERSION = "1.2"
 STARTED = time.time()
 cfg = cfgm.load()
 det = cfg["detection"]

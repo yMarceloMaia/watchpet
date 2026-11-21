@@ -290,7 +290,7 @@ ApplicationWindow {
                         Accessible.name: modelData.title
                         background: Rectangle {
                             radius: T.r4
-                            color: nav.on ? T.haze : nav.hovered ? Qt.alpha(T.haze, .5) : "transparent"
+                            color: nav.on ? T.haze : nav.hovered ? Qt.rgba(T.haze.r, T.haze.g, T.haze.b, .5) : "transparent"
                             border.width: nav.visualFocus ? 1 : 0; border.color: T.fog
                             Rectangle { visible: nav.on; width: T.s2; height: T.s16; radius: T.r2; color: theme.accent
                                 anchors.verticalCenter: parent.verticalCenter }

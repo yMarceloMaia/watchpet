@@ -4,7 +4,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QPalette>
 #include <QRegularExpression>
+#include <QStyleHints>
 #include <cmath>
 
 Theme::Theme(const QString &directory, QObject *parent)
@@ -15,6 +18,9 @@ Theme::Theme(const QString &directory, QObject *parent)
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
     connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] { m_debounce.start(); });
     connect(&m_debounce, &QTimer::timeout, this, &Theme::reload);
+    // Sem Omarchy (Windows, outros Linux): segue o claro/escuro do sistema, ao vivo.
+    if (qGuiApp)
+        connect(qGuiApp->styleHints(), &QStyleHints::colorSchemeChanged, this, &Theme::reload);
     reload();
 }
 
@@ -61,8 +67,16 @@ void Theme::reload() {
         if (QFileInfo::exists(path))
             m_watcher.addPath(path);
 
-    const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    const bool light = readLight(m_directory + "/theme/colors.toml");
+    const QString colors = m_directory + "/theme/colors.toml";
+    QString accent = readAccent(colors);
+    bool light = readLight(colors);
+    if (!QFileInfo::exists(colors) && qGuiApp) {
+        // Sem tema do Omarchy: a cor de destaque e o modo claro/escuro do próprio sistema.
+        const QColor system = QGuiApplication::palette().color(QPalette::Accent);
+        if (system.isValid() && system.alpha() == 255)
+            accent = system.name().toUpper();
+        light = qGuiApp->styleHints()->colorScheme() == Qt::ColorScheme::Light;
+    }
     if (accent != m_accent || light != m_light) {
         m_accent = accent;
         m_light = light;

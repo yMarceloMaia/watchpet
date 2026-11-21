@@ -106,6 +106,22 @@ QString Shell::autostartPath() {
     return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/autostart/catwatch.desktop";
 }
 
+#ifdef Q_OS_WIN
+// Windows: a chave Run do usuário. O instalador grava o mesmo valor ("Catwatch").
+static QSettings runKey() {
+    return QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", QSettings::NativeFormat);
+}
+bool Shell::startWithSystem() const { return runKey().contains("Catwatch"); }
+
+void Shell::setStartWithSystem(bool on) {
+    auto key = runKey();
+    if (on)
+        key.setValue("Catwatch", "\"" + QDir::toNativeSeparators(QCoreApplication::applicationFilePath()) + "\" --background");
+    else
+        key.remove("Catwatch");
+    emit changed();
+}
+#else
 bool Shell::startWithSystem() const { return QFile::exists(autostartPath()); }
 
 void Shell::setStartWithSystem(bool on) {
@@ -125,6 +141,7 @@ void Shell::setStartWithSystem(bool on) {
     }
     emit changed();
 }
+#endif
 
 void Shell::notify(const QString &title, const QString &body, const QString &level) {
     if (m_tray) {

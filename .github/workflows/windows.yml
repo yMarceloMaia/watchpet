@@ -1,0 +1,236 @@
+# Catwatch para Windows, gerado e testado em máquinas Windows:
+#   server     servidor empacotado (catwatch-server.exe) + teste da API, detecção, identificação,
+#              backup/importação e encerramento
+#   desktop    app de PC em Qt (catwatch.exe) com as bibliotecas do Qt
+#   installer  instalador (Inno Setup) com os dois + teste: instala, abre o app, confere que ele
+#              liga o servidor, fecha o app à força, confere que o servidor fechou junto, desinstala
+#
+#   - Manual: aba Actions → "Windows" → Run workflow (os arquivos ficam nos artefatos).
+#   - Release: git tag v1.2.0 && git push --tags (instalador e .zip do servidor na página de releases).
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # para criar a release nas tags
+
+jobs:
+  server:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: server
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências (PyTorch só de CPU, bem menor que o de placa de vídeo)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pyinstaller
+
+      - name: Modelos embutidos (YOLO e ResNet50)
+        run: python deploy/windows/prepare_models.py
+
+      - name: Empacotar
+        run: pyinstaller --noconfirm --log-level WARN deploy/windows/catwatch-server.spec
+
+      - name: Testar o executável
+        run: |
+          $exe = "dist/catwatch-server/catwatch-server.exe"
+          $data = Join-Path $env:RUNNER_TEMP "catwatch-data"
+          $base = "http://127.0.0.1:8765"
+          $p = Start-Process -FilePath $exe -ArgumentList "--data-dir", $data, "--port", "8765" -PassThru `
+                 -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          # Qualquer falha daqui em diante mostra o que o servidor escreveu.
+          trap { Get-Content out.txt, err.txt -ErrorAction SilentlyContinue; break }
+          $up = $false
+          for ($i = 0; $i -lt 180 -and -not $p.HasExited; $i++) {
+            try { if ((Invoke-RestMethod "$base/api/info").app -eq "catwatch") { $up = $true; break } } catch {}
+            Start-Sleep 1
+          }
+          if (-not $up) { throw "o servidor não respondeu" }
+          $h = @{ "X-Token" = (Get-Content (Join-Path $data "data/token.txt")).Trim() }
+
+          # Painel web (arquivos estáticos embutidos)
+          if ((Invoke-WebRequest "$base/" -UseBasicParsing).StatusCode -ne 200) { throw "painel web" }
+
+          # Detecção: uma imagem enviada como câmera precisa ser analisada pelo YOLO
+          $img = python -c "import ultralytics, os; print(os.path.join(os.path.dirname(ultralytics.__file__), 'assets', 'bus.jpg'))"
+          for ($i = 0; $i -lt 5; $i++) { Invoke-RestMethod -Method Post "$base/api/push/teste" -Headers $h -InFile $img -ContentType "image/jpeg" | Out-Null; Start-Sleep 1 }
+          $st = Invoke-RestMethod "$base/api/status" -Headers $h
+          $st | ConvertTo-Json
+          if ($st.frames_analyzed -lt 1) { throw "nenhum quadro analisado" }
+
+          # Identificação: cadastrar uma foto passa pela ResNet50
+          $r = Invoke-RestMethod -Method Post "$base/api/cats/Teste/photos" -Headers $h -Form @{ photo = Get-Item $img }
+          if ($r.photos -ne 1) { throw "cadastro de foto" }
+
+          # Backup e importação: no Windows, trocar pastas e o banco com o servidor rodando é
+          # onde arquivos em uso costumam dar problema.
+          $zip = Join-Path $env:RUNNER_TEMP "backup.zip"
+          Invoke-WebRequest "$base/api/backup.zip" -Headers $h -OutFile $zip
+          $r = Invoke-RestMethod -Method Post "$base/api/restore" -Headers $h -Form @{ backup = Get-Item $zip; settings = "true" }
+          $r | ConvertTo-Json
+          if ($r.cats -ne 1 -or $r.photos -ne 1) { throw "importação do backup" }
+
+          # Encerramento limpo pela API (o app de PC usa para parar e reiniciar)
+          Invoke-RestMethod -Method Post "$base/api/shutdown" -Headers $h | Out-Null
+          if (-not $p.WaitForExit(30000)) { Stop-Process $p -Force; throw "não encerrou pelo /api/shutdown" }
+          Get-Content out.txt, err.txt -ErrorAction SilentlyContinue
+          "executável ok"
+
+      - name: Compactar
+        run: |
+          Copy-Item deploy/windows/LEIA-ME.txt dist/catwatch-server/
+          Compress-Archive -Path dist/catwatch-server -DestinationPath catwatch-server-windows.zip
+          "{0:N0} MB" -f ((Get-Item catwatch-server-windows.zip).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catwatch-server-windows
+          path: server/catwatch-server-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-dist
+          path: server/dist/catwatch-server
+          retention-days: 3
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.2"
+          arch: win64_msvc2022_64
+          cache: true
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Compilar
+        working-directory: desktop
+        shell: cmd
+        run: |
+          mkdir build-win
+          cd build-win
+          qmake ..\catwatch.pro CONFIG+=release
+          nmake
+
+      - name: Juntar as bibliotecas do Qt
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory app | Out-Null
+          Copy-Item build-win\release\catwatch.exe app\
+          windeployqt --release --qmldir src --no-translations --compiler-runtime app\catwatch.exe
+          Copy-Item ..\LICENSE app\LICENSE.txt
+          "{0:N0} MB" -f ((Get-ChildItem app -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dist
+          path: desktop/app
+          retention-days: 3
+
+  installer:
+    needs: [server, desktop]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-dist
+          path: stage
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-dist
+          path: stage/server
+
+      - name: Gerar o instalador
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          $ver = (Select-String -Path desktop/pkgbuild/PKGBUILD -Pattern '^pkgver=(.+)$').Matches[0].Groups[1].Value
+          "CATWATCH_VERSION=$ver" >> $env:GITHUB_ENV
+          & $iscc /Q "/DAppVersion=$ver" "/DSource=$PWD\stage" "/DOutput=$PWD\out" desktop\windows\catwatch.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falhou" }
+          Get-ChildItem out | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - name: Testar o instalador
+        run: |
+          $setup = "out\catwatch-setup-$env:CATWATCH_VERSION.exe"
+          $dir = Join-Path $env:LOCALAPPDATA "Programs\Catwatch"
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          foreach ($f in "catwatch.exe", "server\catwatch-server.exe") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "instalação sem $f" }
+          }
+
+          # O app, sem configuração nenhuma, acha o servidor embutido e liga ele.
+          $env:QT_FORCE_STDERR_LOGGING = "1"
+          $app = Start-Process (Join-Path $dir "catwatch.exe") -PassThru -RedirectStandardError app-err.txt
+          trap { Get-Content app-err.txt -ErrorAction SilentlyContinue; break }
+          $up = $false
+          for ($i = 0; $i -lt 240 -and -not $app.HasExited; $i++) {
+            try { if ((Invoke-RestMethod "http://127.0.0.1:8000/api/info").app -eq "catwatch") { $up = $true; break } } catch {}
+            Start-Sleep 1
+          }
+          if (-not $up) { throw "o app não ligou o servidor embutido (app encerrou: $($app.HasExited))" }
+          $srv = Get-CimInstance Win32_Process -Filter "Name='catwatch-server.exe'"
+          $srv | Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
+          if ($srv.ParentProcessId -ne $app.Id) { throw "o servidor não é filho do app" }
+          $token = Join-Path $env:LOCALAPPDATA "Catwatch\data\token.txt"
+          if (-not (Test-Path $token)) { throw "dados fora de %LOCALAPPDATA%\Catwatch" }
+          Start-Sleep 5
+          $errs = Get-Content app-err.txt -ErrorAction SilentlyContinue | Select-String "qrc:|QQmlApplicationEngine failed"
+          if ($errs) { $errs; throw "erros no QML" }
+
+          # App fechado à força: o Job Object precisa levar o servidor junto.
+          Stop-Process -Id $app.Id -Force
+          $gone = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            if (-not (Get-Process catwatch-server -ErrorAction SilentlyContinue)) { $gone = $true; break }
+            Start-Sleep 1
+          }
+          if (-not $gone) { throw "o servidor ficou órfão depois de fechar o app" }
+
+          # Desinstalar remove o programa e mantém os dados do usuário.
+          Start-Process (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep 3
+          if (Test-Path (Join-Path $dir "catwatch.exe")) { throw "a desinstalação deixou o app" }
+          if (-not (Test-Path $token)) { throw "a desinstalação apagou os dados do usuário" }
+          "instalador ok"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catwatch-setup-windows
+          path: out/*.exe
+
+      - name: Publicar na página de releases
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} -n catwatch-server-windows -D server-zip
+          gh release create $env:GITHUB_REF_NAME "out\catwatch-setup-$env:CATWATCH_VERSION.exe" server-zip\catwatch-server-windows.zip `
+            --title "Catwatch $env:GITHUB_REF_NAME" `
+            --notes "Windows: baixe catwatch-setup-$env:CATWATCH_VERSION.exe (app + servidor). Só o servidor: catwatch-server-windows.zip."
