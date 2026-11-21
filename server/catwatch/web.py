@@ -456,4 +456,4 @@ def shutdown(request: Request):
 # ---------- painel web ----------
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (Path(__file__).parent / "static" / "index.html").read_text()
+    return (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")

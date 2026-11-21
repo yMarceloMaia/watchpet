@@ -46,6 +46,8 @@ jobs:
           $base = "http://127.0.0.1:8765"
           $p = Start-Process -FilePath $exe -ArgumentList "--data-dir", $data, "--port", "8765" -PassThru `
                  -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          # Qualquer falha daqui em diante mostra o que o servidor escreveu.
+          trap { Get-Content out.txt, err.txt -ErrorAction SilentlyContinue; break }
           $up = $false
           for ($i = 0; $i -lt 180 -and -not $p.HasExited; $i++) {
             try { if ((Invoke-RestMethod "$base/api/info").app -eq "catwatch") { $up = $true; break } } catch {}

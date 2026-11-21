@@ -70,7 +70,7 @@ def token_path(cfg: dict) -> Path:
 
 def load(path: str = "config.yaml") -> dict:
     p = Path(path)
-    user = yaml.safe_load(p.read_text()) if p.exists() else {}
+    user = yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
     cfg = _merge(DEFAULTS, user or {})
     cfg["_path"] = path
     # Regra antiga (um tempo só para tudo, 3 s) contava passadas rápidas; troca pelos valores por tipo.
@@ -85,8 +85,8 @@ def load(path: str = "config.yaml") -> dict:
     tok = token_path(cfg)
     tok.parent.mkdir(parents=True, exist_ok=True)
     if not tok.exists():
-        tok.write_text(secrets.token_urlsafe(16))
-    cfg["server"]["token"] = cfg["server"].get("token") or tok.read_text().strip()
+        tok.write_text(secrets.token_urlsafe(16), encoding="utf-8")
+    cfg["server"]["token"] = cfg["server"].get("token") or tok.read_text(encoding="utf-8").strip()
     return cfg
 
 
@@ -101,7 +101,7 @@ def regenerate_token(cfg: dict) -> str:
     """Cria um token novo; quem usava o antigo (celulares, outros PCs) perde o acesso."""
     new = secrets.token_urlsafe(16)
     tmp = token_path(cfg).with_suffix(".tmp")
-    tmp.write_text(new)
+    tmp.write_text(new, encoding="utf-8")
     tmp.replace(token_path(cfg))
     cfg["server"]["token"] = new
     return new
@@ -164,5 +164,5 @@ def save(cfg: dict) -> None:
     out["server"] = {k: v for k, v in out["server"].items() if k != "token"}
     with _lock:
         tmp = Path(cfg["_path"] + ".tmp")
-        tmp.write_text(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+        tmp.write_text(yaml.safe_dump(out, allow_unicode=True, sort_keys=False), encoding="utf-8")
         tmp.replace(cfg["_path"])
