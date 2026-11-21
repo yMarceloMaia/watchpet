@@ -69,7 +69,7 @@ QtObject {
         "alert": 0xf0026, "alert-circle": 0xf0028, "check-circle": 0xf05e0, "close": 0xf0156,
         "plus": 0xf0415, "camera": 0xf0100, "image-multiple": 0xf02f9, "delete-outline": 0xf09e7,
         "refresh": 0xf0450, "play": 0xf040a, "stop": 0xf04db, "restart": 0xf0709, "qrcode-scan": 0xf0433,
-        "download": 0xf01da, "vector-polygon": 0xf0560, "swap-horizontal": 0xf04e1, "folder-open": 0xf0770,
+        "download": 0xf01da, "upload": 0xf0552, "vector-polygon": 0xf0560, "swap-horizontal": 0xf04e1, "folder-open": 0xf0770,
         "content-save": 0xf0193, "power": 0xf0425, "eye": 0xf0208, "eye-off": 0xf0209,
         "clock-outline": 0xf0150, "web": 0xf059f, "lan-disconnect": 0xf0319,
         "brightness-auto": 0xf00e1, "white-balance-sunny": 0xf05a8, "weather-night": 0xf0594

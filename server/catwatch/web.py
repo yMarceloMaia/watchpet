@@ -20,11 +20,12 @@ import cv2
 import numpy as np
 import psutil
 import qrcode
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from . import backup as bk
 from . import config as cfgm
 from . import db as dbm
 from .monitor import Monitor
@@ -419,26 +420,88 @@ def export_csv():
 def backup():
     """Banco, fotos das visitas, galeria dos gatos e config.yaml (sem o token) num .zip."""
     tmp = Path(tempfile.mkdtemp(prefix="catwatch-backup-"))
-    db_copy = tmp / "catwatch.db"
-    dst = sqlite3.connect(db_copy)
-    with dbm._lock:
-        pipe.db.backup(dst)  # cópia consistente mesmo com o servidor gravando
-    dst.close()
     zpath = tmp / "catwatch-backup.zip"
-    data = Path(cfg["db"]).parent
-    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(db_copy, "data/catwatch.db")
-        if Path(cfg["_path"]).exists():
-            z.write(cfg["_path"], "config.yaml")
-        for folder in (GALLERY, data / "snapshots"):
-            for f in folder.rglob("*") if folder.exists() else []:
-                if f.is_file():
-                    # Caminhos do config são relativos à pasta de dados (o cwd); mantém a estrutura.
-                    arc = f.resolve().relative_to(Path.cwd()) if f.resolve().is_relative_to(Path.cwd()) else Path(folder.name) / f.relative_to(folder)
-                    z.write(f, arc.as_posix())
+    bk.write_backup(zpath, pipe.db, cfg["_path"], GALLERY, pipe.photo_dir, dbm._lock)
     name = f"catwatch-backup-{datetime.now():%Y%m%d-%H%M}.zip"
     return FileResponse(zpath, media_type="application/zip", filename=name,
                         background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
+
+
+def _replace_dir(target: Path, source: Path | None):
+    """Troca o conteúdo de uma pasta pelo do backup (ou esvazia, se o backup não tem)."""
+    if target.exists():
+        shutil.rmtree(target)
+    if source:
+        shutil.copytree(source, target)
+    else:
+        target.mkdir(parents=True, exist_ok=True)
+
+
+def _restore_settings(new: dict) -> int:
+    """Câmeras, zonas e configurações do backup. A porta e o processador ficam os deste PC."""
+    for c in list(cfg["cameras"]):
+        pipe.remove_camera(c["name"])
+    added = 0
+    for c in new.get("cameras") or []:
+        try:
+            name = safe_name(str(c["name"]))
+        except (KeyError, HTTPException):
+            continue
+        zones = [z for z in c.get("zones") or []
+                 if isinstance(z, dict) and z.get("kind") in ("litter", "food", "water") and len(z.get("polygon") or []) >= 3]
+        pipe.add_camera({"name": name, "source": str(c.get("source", "")), "zones": zones})
+        added += 1
+    # Uma chave por vez: um valor fora da faixa (ou de versão antiga) não impede as outras.
+    for section in ("detection", "visits", "alerts"):
+        for key, value in (new.get(section) or {}).items():
+            if (section, key) != ("detection", "device"):
+                cfgm.apply_settings(cfg, {section: {key: value}})
+    pipe.tracker.configure(*cfgm.visit_rules(cfg))
+    pipe.detector.conf = cfg["detection"]["confidence"]
+    pipe.identifier.threshold = cfg["detection"]["identify_threshold"]
+    cfgm.save(cfg)
+    return added
+
+
+@app.post("/api/restore", dependencies=[api])
+def restore(backup: UploadFile = File(...), settings: bool = Form(True)):
+    """Importa um backup: substitui banco, gatos, fotos e (se settings) câmeras e configurações.
+
+    Antes de tocar em qualquer coisa, guarda os dados atuais em data/backups/, para desfazer.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="catwatch-restore-"))
+    try:
+        zpath = tmp / "importar.zip"
+        with open(zpath, "wb") as f:
+            shutil.copyfileobj(backup.file, f)
+        try:
+            b = bk.read_backup(zpath, tmp / "backup")
+        except bk.BadBackup as e:
+            raise HTTPException(400, f"Não dá para importar: {e}.")
+
+        safety = Path(cfg["db"]).parent / "backups" / f"antes-de-importar-{datetime.now():%Y%m%d-%H%M%S}.zip"
+        safety.parent.mkdir(parents=True, exist_ok=True)
+        bk.write_backup(safety, pipe.db, cfg["_path"], GALLERY, pipe.photo_dir, dbm._lock)
+
+        with pipe._infer:  # pausa a análise das câmeras enquanto os dados mudam
+            pipe.tracker.reset()
+            src = sqlite3.connect(b["db"])
+            with dbm._lock:
+                src.backup(pipe.db)
+            src.close()
+            dbm.migrate(pipe.db)
+            _replace_dir(GALLERY, b["cats"])
+            _replace_dir(pipe.photo_dir, b["snapshots"])
+            pipe.identifier.load(cfg["gallery"])
+        cameras = _restore_settings(b["config"]) if settings and b["config"] else None
+
+        c = b["counts"]
+        dbm.add_event(pipe.db, "server", f"Backup importado: {c['visits']} visitas, {c['cats']} gatos, {c['photos']} fotos"
+                      + (f", {cameras} câmeras" if cameras is not None else "") + f". Dados anteriores em {safety.name}", "warn")
+        return {**c, "cameras": cameras if cameras is not None else len(cfg["cameras"]),
+                "settings_restored": cameras is not None, "safety_backup": safety.name}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 @app.post("/api/shutdown", dependencies=[api])

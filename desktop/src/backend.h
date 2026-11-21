@@ -33,6 +33,9 @@ class Backend : public QObject {
     Q_PROPERTY(int pairRevision READ pairRevision NOTIFY pairChanged)
     Q_PROPERTY(bool downloading READ downloading NOTIFY downloadChanged)
     Q_PROPERTY(int downloadProgress READ downloadProgress NOTIFY downloadChanged)
+    Q_PROPERTY(bool importing READ importing NOTIFY importChanged)
+    // 0 a 100 enquanto envia o arquivo; -1 quando o servidor já recebeu e está importando.
+    Q_PROPERTY(int importProgress READ importProgress NOTIFY importChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
@@ -61,6 +64,8 @@ public:
     int pairRevision() const { return m_pairRevision; }
     bool downloading() const { return m_download != nullptr; }
     int downloadProgress() const { return m_downloadProgress; }
+    bool importing() const { return m_import != nullptr; }
+    int importProgress() const { return m_importProgress; }
 
     // Aba Servidor
     Q_INVOKABLE void loadSettings();
@@ -70,6 +75,9 @@ public:
     Q_INVOKABLE QString pairQrUrl(int revision) const;
     // Baixa um arquivo do servidor (CSV, backup) direto para o caminho escolhido.
     Q_INVOKABLE void download(const QString &path, const QString &fileUrl);
+    // Envia um backup .zip ao servidor, que substitui gatos, histórico e fotos (e, com
+    // withSettings, câmeras e configurações). O servidor guarda antes uma cópia do que havia.
+    Q_INVOKABLE void importBackup(const QString &fileUrl, bool withSettings);
 
     Q_INVOKABLE void connectTo(const QString &url, const QString &token);
     Q_INVOKABLE void disconnectServer();
@@ -110,6 +118,7 @@ signals:
     void settingsChanged();
     void pairChanged();
     void downloadChanged();
+    void importChanged();
     // Evento novo do servidor (depois da carga inicial), para virar notificação.
     void newEvent(const QVariantMap &event);    // Resultado de uma ação do usuário (sucesso ou o motivo da falha), para mostrar na janela.
     void message(const QString &text, bool isError);
@@ -147,4 +156,6 @@ private:
     int m_pairRevision = 0;
     QNetworkReply *m_download = nullptr;
     int m_downloadProgress = -1;
+    QNetworkReply *m_import = nullptr;
+    int m_importProgress = 0;
 };

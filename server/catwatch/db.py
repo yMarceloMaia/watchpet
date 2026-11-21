@@ -7,6 +7,12 @@ _lock = threading.Lock()
 def connect(path: str) -> sqlite3.Connection:
     db = sqlite3.connect(path, check_same_thread=False)
     db.row_factory = sqlite3.Row
+    migrate(db)
+    return db
+
+
+def migrate(db: sqlite3.Connection) -> None:
+    """Cria o que falta no banco; também roda depois de importar um backup de versão antiga."""
     db.execute("""CREATE TABLE IF NOT EXISTS visits(
         id INTEGER PRIMARY KEY, cat TEXT, kind TEXT, zone TEXT, camera TEXT,
         start REAL, end REAL)""")
@@ -22,7 +28,6 @@ def connect(path: str) -> sqlite3.Connection:
         cat TEXT, camera TEXT, visit_id INTEGER, key TEXT)""")
     db.execute("CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts)")
     db.commit()
-    return db
 
 
 def _q(db, sql, args=()):

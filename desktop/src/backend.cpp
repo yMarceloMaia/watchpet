@@ -435,3 +435,60 @@ void Backend::download(const QString &path, const QString &fileUrl) {
         emit downloadChanged();
     });
 }
+
+void Backend::importBackup(const QString &fileUrl, bool withSettings) {
+    if (m_import)
+        return;
+    auto *file = new QFile(QUrl(fileUrl).toLocalFile());
+    if (!file->open(QIODevice::ReadOnly)) {
+        emit message(tr("Não consegui abrir %1").arg(QFileInfo(*file).fileName()), true);
+        delete file;
+        return;
+    }
+    auto *multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    QHttpPart part;
+    part.setHeader(QNetworkRequest::ContentDispositionHeader,
+                   "form-data; name=\"backup\"; filename=\"" + QFileInfo(*file).fileName() + "\"");
+    part.setHeader(QNetworkRequest::ContentTypeHeader, "application/zip");
+    part.setBodyDevice(file);
+    file->setParent(multi);
+    multi->append(part);
+    QHttpPart flag;
+    flag.setHeader(QNetworkRequest::ContentDispositionHeader, "form-data; name=\"settings\"");
+    flag.setBody(withSettings ? "true" : "false");
+    multi->append(flag);
+
+    auto req = request("/api/restore");
+    req.setTransferTimeout(30 * 60 * 1000);  // backup grande + reanalisar a galeria dos gatos
+    m_import = m_net.post(req, multi);
+    multi->setParent(m_import);
+    m_importProgress = 0;
+    emit importChanged();
+    connect(m_import, &QNetworkReply::uploadProgress, this, [this](qint64 sent, qint64 total) {
+        // Arquivo todo enviado: daqui em diante é o servidor importando (sem como medir).
+        m_importProgress = total > 0 && sent < total ? int(sent * 100 / total) : -1;
+        emit importChanged();
+    });
+    connect(m_import, &QNetworkReply::finished, this, [this] {
+        auto *reply = m_import;
+        m_import = nullptr;
+        reply->deleteLater();
+        const auto body = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() == QNetworkReply::NoError) {
+            // Sem catálogo de tradução, o %n do Qt não escolhe singular/plural; fazemos à mão.
+            auto count = [](int n, const QString &one, const QString &many) { return QString("%1 %2").arg(n).arg(n == 1 ? one : many); };
+            emit message(tr("Backup importado: %1, %2 e %3. Os dados anteriores ficaram em %4.")
+                             .arg(count(body.value("visits").toInt(), tr("visita"), tr("visitas")),
+                                  count(body.value("cats").toInt(), tr("gato"), tr("gatos")),
+                                  count(body.value("cameras").toInt(), tr("câmera"), tr("câmeras")),
+                                  body.value("safety_backup").toString()), false);
+            ++m_catsRevision;
+            refresh();
+            loadSettings();
+        } else {
+            const QString d = body.value("detail").toString();
+            emit message(d.isEmpty() ? reply->errorString() : d, true);
+        }
+        emit importChanged();
+    });
+}

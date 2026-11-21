@@ -144,6 +144,11 @@ class VisitTracker:
             out[leader].absorb(v.seen[UNKNOWN])
         return out
 
+    def reset(self) -> None:
+        """Descarta as visitas em andamento (os dados foram substituídos por um backup)."""
+        with self._lock:
+            self.open.clear()
+
     def flush(self, now: float, force: bool = False) -> list[dict]:
         """Fecha as visitas sem o gato há gap_seconds (do tipo da zona) e devolve as que valem.
         force=True fecha todas (servidor encerrando: quem estava na caixa ainda conta)."""

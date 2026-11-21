@@ -103,6 +103,21 @@ Flickable {
         currentFolder: StandardPaths.standardLocations(StandardPaths.DownloadLocation)[0]
         onAccepted: backend.download(path, selectedFile.toString())
     }
+    FileDialog {
+        id: importDialog
+        title: "Importar backup do Catwatch"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Backup do Catwatch (*.zip)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.DownloadLocation)[0]
+        onAccepted: {
+            const file = selectedFile.toString()
+            const withSettings = importSettings.checked
+            page.app.ask("Importar este backup? Os gatos, o histórico e as fotos deste servidor"
+                         + (withSettings ? ", as câmeras, as zonas e as configurações" : "")
+                         + " serão substituídos pelos do backup. Antes, o servidor guarda uma cópia do que existe hoje em data/backups.",
+                         () => backend.importBackup(file, withSettings))
+        }
+    }
     function saveAs(path, name, filter) {
         saveDialog.path = path
         saveDialog.nameFilters = [filter]
@@ -352,20 +367,41 @@ Flickable {
                     visible: backend.connected
                     Layout.fillWidth: true
                     title: "Dados"
-                    subtitle: "O histórico e as fotos ficam no servidor. Guarde um backup de vez em quando; ele também leva tudo para outro PC."
+                    subtitle: "O histórico e as fotos ficam no servidor. Guarde um backup de vez em quando; com ele você leva tudo para outro PC ou volta atrás."
                     Flow {
                         Layout.fillWidth: true
                         spacing: T.s8
                         ActionButton { text: "Exportar visitas (CSV)"; icon_: "download"; enabled: !backend.downloading
                             onClicked: page.saveAs("/api/export/visits.csv", "catwatch-visitas.csv", "Planilha CSV (*.csv)") }
-                        ActionButton { text: "Backup completo (.zip)"; icon_: "download"; enabled: !backend.downloading
+                        ActionButton { text: "Backup completo (.zip)"; icon_: "download"; enabled: !backend.downloading && !backend.importing
                             onClicked: page.saveAs("/api/backup.zip", "catwatch-backup-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmm") + ".zip", "Arquivo ZIP (*.zip)") }
+                        ActionButton { text: "Importar backup (.zip)"; icon_: "upload"; enabled: !backend.downloading && !backend.importing
+                            onClicked: importDialog.open() }
+                    }
+                    Switch {
+                        id: importSettings
+                        checked: true
+                        text: "Ao importar, trazer também câmeras, zonas e configurações"
                     }
                     ProgressBar {
                         visible: backend.downloading
                         Layout.fillWidth: true
                         indeterminate: backend.downloadProgress < 0
                         from: 0; to: 100; value: Math.max(0, backend.downloadProgress)
+                    }
+                    ColumnLayout {
+                        visible: backend.importing
+                        Layout.fillWidth: true
+                        spacing: T.s4
+                        Label {
+                            text: backend.importProgress >= 0 ? "Enviando o backup ao servidor" : "Importando: o servidor está trocando os dados e reanalisando as fotos dos gatos"
+                            color: T.fog; font.pixelSize: T.caption; wrapMode: Text.Wrap; Layout.fillWidth: true
+                        }
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            indeterminate: backend.importProgress < 0
+                            from: 0; to: 100; value: Math.max(0, backend.importProgress)
+                        }
                     }
                 }
 
