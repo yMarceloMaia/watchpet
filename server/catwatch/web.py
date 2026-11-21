@@ -447,7 +447,9 @@ def shutdown(request: Request):
     if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
         raise HTTPException(403, "só pode ser encerrado pelo próprio computador")
     dbm.add_event(pipe.db, "server", "Servidor encerrado")
-    threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGINT)).start()
+    # raise_signal aciona o Ctrl+C do próprio processo (encerramento limpo do uvicorn) também no
+    # Windows, onde os.kill(pid, SIGINT) mataria o processo sem gravar as visitas em andamento.
+    threading.Timer(0.5, lambda: signal.raise_signal(signal.SIGINT)).start()
     return {"ok": True}
 
 

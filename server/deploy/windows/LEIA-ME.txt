@@ -1,0 +1,22 @@
+CATWATCH — SERVIDOR PARA WINDOWS
+================================
+
+1. Extraia a pasta catwatch-server para onde quiser (ex: C:\Catwatch).
+   Mantenha todos os arquivos juntos: o .exe precisa da pasta _internal ao lado.
+2. Abra catwatch-server.exe. Uma janela preta mostra o token de acesso.
+   Na primeira vez, o Windows pergunta se libera a rede: permita em "Redes privadas",
+   senão o celular não consegue conectar.
+3. Abra http://localhost:8000 no navegador (painel web) ou use os apps:
+   no app do celular, conecte em http://IP-DESTE-PC:8000 com o token.
+
+Seus dados (configuração, gatos, histórico e fotos) ficam em
+  %LOCALAPPDATA%\Catwatch
+Para usar outra pasta ou porta:
+  catwatch-server.exe --data-dir D:\Catwatch --port 8080
+
+Para iniciar junto com o Windows: Win+R, digite shell:startup e coloque ali
+um atalho para o catwatch-server.exe.
+
+Esta versão usa o processador (CPU). Funciona em qualquer PC, mas analisa menos
+quadros por segundo que com uma placa de vídeo NVIDIA. Para fechar, feche a janela
+preta ou aperte Ctrl+C nela.

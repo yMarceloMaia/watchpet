@@ -23,6 +23,11 @@ mais que o costume, câmera fora do ar).
 `server/deploy/make-linux-bundle.sh` e rode o `install.sh` dele no outro PC
 (detalhes em [`server/deploy/linux/LEIA-ME.txt`](server/deploy/linux/LEIA-ME.txt)).
 
+**Servidor no Windows:** baixe o `catwatch-server-windows.zip` na página de
+[releases](https://github.com/yMarceloMaia/watchpet/releases) (ou nos artefatos da ação
+"Servidor para Windows"), extraia e abra `catwatch-server.exe`. Ele é gerado e testado numa
+máquina Windows pelo GitHub Actions ([`.github/workflows/server-windows.yml`](.github/workflows/server-windows.yml)).
+
 **Desenvolvimento:**
 ```sh
 # servidor

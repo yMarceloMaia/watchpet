@@ -8,3 +8,4 @@ build/
 # Configuração local: pode ter usuário e senha de câmeras RTSP. Modelo em config.example.yaml.
 config.yaml
 .pytest_cache/
+models/
