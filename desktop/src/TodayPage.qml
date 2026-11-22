@@ -47,7 +47,8 @@ Flickable {
             Layout.fillWidth: true
             Label { text: "Hoje"; font.pixelSize: T.display; font.weight: Font.Bold; color: T.moon }
             Item { Layout.fillWidth: true }
-            Label { text: new Date().toLocaleDateString(T.locale, "dddd, d 'de' MMMM"); color: T.fog; font.pixelSize: T.body }
+            // Ligado a page.midnight: com o app aberto, a data vira à meia-noite junto com as contagens.
+            Label { text: new Date(page.midnight * 1000).toLocaleDateString(T.locale, "dddd, d 'de' MMMM"); color: T.fog; font.pixelSize: T.body }
         }
 
         // Alertas do dia: a faixa à esquerda tem a cor da gravidade.

@@ -20,8 +20,6 @@ Backend::Backend(QObject *parent) : QObject(parent), m_settings("catwatch", "cat
     connect(&m_poll, &QTimer::timeout, this, &Backend::refresh);
     m_eventsPoll.setInterval(3000);
     connect(&m_eventsPoll, &QTimer::timeout, this, &Backend::pollEvents);
-    m_frames.setInterval(800);
-    connect(&m_frames, &QTimer::timeout, this, [this] { ++m_frame; emit frameChanged(); });
 
     const QString url = savedUrl(), token = savedToken();
     if (!url.isEmpty() && !token.isEmpty())
@@ -87,7 +85,6 @@ void Backend::connectTo(const QString &url, const QString &token) {
             emit eventsChanged();
             emit connectedChanged();
             m_poll.start();
-            m_frames.start();
             m_eventsPoll.start();
             refresh();
             pollEvents();
@@ -104,7 +101,6 @@ void Backend::connectTo(const QString &url, const QString &token) {
 
 void Backend::disconnectServer() {
     m_poll.stop();
-    m_frames.stop();
     m_eventsPoll.stop();
     m_settings.remove("token");
     m_connected = false;
@@ -133,15 +129,27 @@ QVariantList Backend::pivot(const QVariantList &counts, const QStringList &keys)
     return out;
 }
 
+void Backend::refreshDone() {
+    if (--m_refreshPending == 0 && m_refreshAgain) {
+        m_refreshAgain = false;
+        refresh();
+    }
+}
+
 void Backend::refresh() {
     if (!m_connected)
         return;
+    if (m_refreshPending > 0) {
+        m_refreshAgain = true;
+        return;
+    }
     struct Job { QString path; QVariantList Backend::*target; QStringList pivotKeys; };
     const QList<Job> jobs{{"/api/today", &Backend::m_today, {"cat"}},
                           {"/api/stats?days=7", &Backend::m_week, {"day", "cat"}},
                           {"/api/recent?limit=300", &Backend::m_recent, {}},
                           {"/api/cameras", &Backend::m_cameras, {}},
                           {"/api/cats", &Backend::m_cats, {}}};
+    m_refreshPending = int(jobs.size()) + 2;
     auto *st = get("/api/status");
     connect(st, &QNetworkReply::finished, this, [this, st] {
         st->deleteLater();
@@ -149,6 +157,7 @@ void Backend::refresh() {
             m_status = QJsonDocument::fromJson(st->readAll()).object().toVariantMap();
             emit statusChanged();
         }
+        refreshDone();
     });
     const qint64 midnight = QDateTime(QDate::currentDate(), QTime(0, 0)).toSecsSinceEpoch();
     auto *al = get(QString("/api/events?type=alert&since=%1").arg(midnight));
@@ -159,6 +168,7 @@ void Backend::refresh() {
             std::reverse(m_alertsToday.begin(), m_alertsToday.end());
             emit dataChanged();
         }
+        refreshDone();
     });
     for (const auto &job : jobs) {
         auto *reply = get(job.path);
@@ -166,25 +176,26 @@ void Backend::refresh() {
             reply->deleteLater();
             if (reply->error() != QNetworkReply::NoError) {
                 setError(tr("Sem conexão com o servidor"));
-                return;
+            } else {
+                setError({});
+                auto list = QJsonDocument::fromJson(reply->readAll()).array().toVariantList();
+                if (!job.pivotKeys.isEmpty())
+                    list = pivot(list, job.pivotKeys);
+                if (job.path == "/api/stats?days=7")
+                    std::reverse(list.begin(), list.end());  // dia mais recente primeiro
+                this->*job.target = list;
+                emit dataChanged();
             }
-            setError({});
-            auto list = QJsonDocument::fromJson(reply->readAll()).array().toVariantList();
-            if (!job.pivotKeys.isEmpty())
-                list = pivot(list, job.pivotKeys);
-            if (job.path == "/api/stats?days=7")
-                std::reverse(list.begin(), list.end());  // dia mais recente primeiro
-            this->*job.target = list;
-            emit dataChanged();
+            refreshDone();
         });
     }
 }
 
-QString Backend::snapshotUrl(const QString &camera, int frame, bool raw) const {
+QString Backend::snapshotUrl(const QString &camera, double frame, bool raw) const {
     QUrl url(m_url + "/snapshot/" + enc(camera) + ".jpg");
     QUrlQuery q;
     q.addQueryItem("token", m_token);
-    q.addQueryItem("t", QString::number(frame));
+    q.addQueryItem("t", QString::number(frame, 'f', 0));
     if (raw)
         q.addQueryItem("raw", "true");
     url.setQuery(q);
@@ -302,13 +313,15 @@ bool Backend::isLocal() const {
 }
 
 void Backend::pollEvents() {
-    if (!m_connected)
+    if (!m_connected || m_eventsBusy)
         return;
+    m_eventsBusy = true;
     // Primeira carga: os últimos 200, sem notificar (são do passado). Depois: só os novos.
     auto *reply = get(m_eventsLoaded ? QString("/api/events?after=%1").arg(m_lastEventId)
                                      : QString("/api/events?limit=200"));
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
+        m_eventsBusy = false;
         if (reply->error() != QNetworkReply::NoError)
             return;
         const auto list = QJsonDocument::fromJson(reply->readAll()).array().toVariantList();

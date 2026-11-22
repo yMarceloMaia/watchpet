@@ -1,6 +1,7 @@
 #include "servermanager.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -85,6 +86,20 @@ ServerManager::ServerManager(QObject *parent) : QObject(parent), m_settings("cat
             }
             const QString msg = why.isEmpty() ? tr("O servidor parou sozinho (código %1). Veja a saída do processo.").arg(code)
                                               : tr("O servidor parou: %1").arg(why);
+            // O app existe para vigiar os gatos: se o servidor caiu (falta de memória, erro), liga
+            // de novo sozinho em vez de ficar parado até alguém perceber. Ciclo de quedas: desiste.
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            m_crashTimes.removeIf([now](qint64 t) { return now - t > 3600; });
+            if (autoStart() && serverDirValid() && m_crashTimes.size() < 3) {
+                m_crashTimes << now;
+                setState("error", msg + " " + tr("Ligando de novo…"));
+                emit crashed(msg + " " + tr("Ligando de novo."));
+                QTimer::singleShot(5000, this, [this] {
+                    if (m_state == "error")
+                        start();
+                });
+                return;
+            }
             setState("error", msg);
             emit crashed(msg);
         });

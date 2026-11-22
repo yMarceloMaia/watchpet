@@ -43,12 +43,11 @@ Flickable {
                         Layout.fillWidth: true
                         Layout.preferredHeight: width * 9 / 16
                         radius: T.r4; color: T.night; clip: true
-                        Image {
+                        LiveImage {
                             anchors.fill: parent
-                            // Só busca quadros com a página aberta e a câmera no ar.
-                            source: page.active && card.cam.online ? backend.snapshotUrl(card.cam.name, backend.frame) : ""
-                            cache: false; asynchronous: true
-                            fillMode: Image.PreserveAspectFit
+                            camera: card.cam.name
+                            // Só busca quadros com a página aberta, a janela à vista e a câmera no ar.
+                            running: page.active && page.visible && Window.window !== null && Window.window.visible && card.cam.online
                         }
                         ColumnLayout {
                             visible: !card.cam.online

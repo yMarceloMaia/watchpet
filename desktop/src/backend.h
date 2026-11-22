@@ -17,7 +17,6 @@ class Backend : public QObject {
     Q_PROPERTY(QVariantList recent READ recent NOTIFY dataChanged)
     Q_PROPERTY(QVariantList cameras READ cameras NOTIFY dataChanged)
     Q_PROPERTY(QVariantList cats READ cats NOTIFY dataChanged)
-    Q_PROPERTY(int frame READ frame NOTIFY frameChanged)
     Q_PROPERTY(int catsRevision READ catsRevision NOTIFY dataChanged)
     Q_PROPERTY(bool uploading READ uploading NOTIFY uploadChanged)
     Q_PROPERTY(int uploadTotal READ uploadTotal NOTIFY uploadChanged)
@@ -48,7 +47,6 @@ public:
     QVariantList recent() const { return m_recent; }
     QVariantList cameras() const { return m_cameras; }
     QVariantList cats() const { return m_cats; }
-    int frame() const { return m_frame; }
     int catsRevision() const { return m_catsRevision; }
     bool uploading() const { return m_uploading; }
     int uploadTotal() const { return m_upTotal; }
@@ -86,7 +84,8 @@ public:
     Q_INVOKABLE QString savedToken() const { return m_settings.value("token").toString(); }
 
     // Imagens: o token vai na query porque o QML Image não consegue mandar cabeçalhos.
-    Q_INVOKABLE QString snapshotUrl(const QString &camera, int frame, bool raw = false) const;
+    // `frame` só muda a URL, para o QML não reaproveitar o quadro anterior.
+    Q_INVOKABLE QString snapshotUrl(const QString &camera, double frame, bool raw = false) const;
     Q_INVOKABLE QString thumbUrl(const QString &cat, int revision) const;
     Q_INVOKABLE QString photoUrl(int visitId) const;
 
@@ -111,7 +110,6 @@ signals:
     void connectedChanged();
     void errorChanged();
     void dataChanged();
-    void frameChanged();
     void uploadChanged();
     void statusChanged();
     void eventsChanged();
@@ -129,16 +127,24 @@ private:
     void setError(const QString &e);
     void nextUpload();
     void pollEvents();
+    void refreshDone();
     void finishAction(QNetworkReply *reply, const QString &okText);
     void send(const QString &method, const QString &path, const QByteArray &body = {}, const QString &okText = {});
     static QString enc(const QString &s) { return QString::fromUtf8(QUrl::toPercentEncoding(s)); }
 
     QNetworkAccessManager m_net;
     QSettings m_settings;
-    QTimer m_poll, m_frames;
+    QTimer m_poll;
     QString m_url, m_token, m_error;
     bool m_connected = false;
-    int m_frame = 0, m_catsRevision = 0;
+    int m_catsRevision = 0;
+    // Pedidos de refresh() ainda sem resposta. Com o servidor lento, o relógio não empilha
+    // outra rodada por cima; um refresh pedido nesse meio tempo roda quando ela termina.
+    int m_refreshPending = 0;
+    bool m_refreshAgain = false;
+    // Um pedido de eventos por vez: dois ao mesmo tempo traziam os mesmos eventos novos,
+    // que apareciam duas vezes no log e viravam notificações repetidas.
+    bool m_eventsBusy = false;
     QVariantList m_today, m_week, m_recent, m_cameras, m_cats;
 
     // Fila de envio de fotos: uma por vez, para o progresso andar foto a foto e o servidor não engasgar.

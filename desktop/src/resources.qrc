@@ -16,6 +16,7 @@
         <file alias="HistoryPage.qml">HistoryPage.qml</file>
         <file alias="ServerPage.qml">ServerPage.qml</file>
         <file alias="ZoneEditor.qml">ZoneEditor.qml</file>
+        <file alias="LiveImage.qml">LiveImage.qml</file>
         <file alias="icon.svg">icon.svg</file>
         <file alias="fonts/Recursive_400Regular.ttf">fonts/Recursive_400Regular.ttf</file>
         <file alias="fonts/Recursive_500Medium.ttf">fonts/Recursive_500Medium.ttf</file>

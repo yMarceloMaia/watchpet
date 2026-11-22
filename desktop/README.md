@@ -10,7 +10,8 @@ App leve em Qt Quick para acompanhar os gatos e controlar o servidor Catwatch de
   celular; uso de CPU, memória e placa de vídeo; configurações; exportar CSV e
   backup; log ao vivo e saída do processo.
 
-Fechar a janela deixa o app na bandeja, com o servidor monitorando. Com
+Fechar a janela deixa o app na bandeja, com o servidor monitorando. Se o servidor
+cair sozinho, o app liga ele de novo (até 3 vezes por hora). Com
 "Iniciar com o sistema", o app abre no login direto na bandeja (`catwatch --background`)
 e liga o servidor. Alertas (gato sem beber água, excesso de idas à caixa, câmera
 fora do ar) viram notificações do sistema.

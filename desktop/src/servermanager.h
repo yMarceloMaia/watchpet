@@ -98,6 +98,8 @@ private:
     qint64 m_otherPid = 0;
     QString m_state = "stopped", m_message;
     QStringList m_output;
+    // Quando o nosso servidor caiu sozinho, para religar sem entrar em ciclo (no máximo 3 por hora).
+    QList<qint64> m_crashTimes;
 #ifdef Q_OS_WIN
     void *m_job = nullptr;  // Job Object: o Windows encerra o servidor se o app morrer
 #endif
