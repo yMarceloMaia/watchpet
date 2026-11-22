@@ -35,6 +35,13 @@ parser.add_argument("--port", type=int, help="porta HTTP (sobrepõe o config.yam
 args = parser.parse_args()
 
 
+# O app de PC lê a saída como UTF-8. No Windows o padrão é a página de código local: os
+# acentos chegavam trocados e um nome de gato fora dela fazia o print falhar.
+for stream in (sys.stdout, sys.stderr):
+    if stream is not None and hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def fail(code: int, message: str):
     print(f"catwatch: {message}", file=sys.stderr, flush=True)
     sys.exit(code)

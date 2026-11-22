@@ -34,7 +34,11 @@ class Monitor:
             try:
                 self.check(time.time())
             except Exception as e:  # um erro aqui não pode derrubar o monitoramento
-                dbm.add_event(self.pipe.db, "error", f"Erro no monitor: {e}", "error")
+                print(f"[erro] monitor: {e}", flush=True)
+                try:
+                    dbm.add_event(self.pipe.db, "error", f"Erro no monitor: {e}", "error")
+                except Exception:
+                    pass  # nem registrar deu (banco ocupado?): tenta de novo na próxima volta
 
     def _alert(self, key: str, message: str, now: float, cat=None, camera=None, level="warn", type_="alert"):
         if dbm.event_exists(self.pipe.db, key, day_start(now)):

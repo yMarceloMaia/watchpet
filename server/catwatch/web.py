@@ -1,4 +1,5 @@
 import base64
+import binascii
 import csv
 import io
 import json
@@ -24,6 +25,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from . import backup as bk
 from . import config as cfgm
@@ -98,7 +100,7 @@ def stats(days: int = Query(7, ge=1, le=365)):
 
 
 @app.get("/api/recent", dependencies=[api])
-def recent(limit: int = Query(50, le=500), cat: str | None = None, kind: str | None = None):
+def recent(limit: int = Query(50, ge=1, le=500), cat: str | None = None, kind: str | None = None):
     rows = dbm.recent(pipe.db, limit, cat, kind)
     for r in rows:
         r["votes"] = json.loads(r["votes"]) if r.get("votes") else {}
@@ -148,9 +150,11 @@ class CameraBody(BaseModel):
 
 @app.get("/api/cameras", dependencies=[api])
 def cameras():
-    return [{"name": c["name"], "source": c["source"], "zones": c["zones"],
-             "online": pipe.cams[c["name"]].online if c["name"] in pipe.cams else False}
-            for c in cfg["cameras"]]
+    out = []
+    for c in list(cfg["cameras"]):
+        cam = pipe.cams.get(c["name"])
+        out.append({"name": c["name"], "source": c["source"], "zones": c["zones"], "online": bool(cam and cam.online)})
+    return out
 
 
 @app.post("/api/cameras", dependencies=[api])
@@ -185,19 +189,9 @@ def set_zones(name: str, zones: list[Zone]):
     return {"ok": True}
 
 
-def _frame_jpeg(name: str, annotated: bool = True):
-    frame = pipe.last_annotated.get(name) if annotated else None
-    if frame is None and name in pipe.cams:
-        frame = pipe.cams[name].frame
-    if frame is None:
-        return None
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    return buf.tobytes() if ok else None
-
-
 @app.get("/snapshot/{camera}.jpg", dependencies=[api])
 def snapshot(camera: str, raw: bool = False):
-    data = _frame_jpeg(camera, annotated=not raw)
+    data = pipe.jpeg(camera, annotated=not raw)
     if data is None:
         raise HTTPException(404, "câmera sem imagem")
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
@@ -207,7 +201,7 @@ def snapshot(camera: str, raw: bool = False):
 def stream(camera: str):
     def gen():
         while camera in pipe.cams:
-            data = _frame_jpeg(camera)
+            data = pipe.jpeg(camera)
             if data:
                 yield b"--f\r\nContent-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
             time.sleep(0.3)
@@ -217,17 +211,29 @@ def stream(camera: str):
 @app.post("/api/push/{camera}", dependencies=[api])
 async def push(camera: str, request: Request):
     """O app do celular envia JPEGs aqui; a câmera é criada (source=push) se não existir."""
+    camera = safe_name(camera)  # o mesmo nome com que a câmera é guardada (sem espaços nas pontas)
     if camera not in pipe.cams:
-        pipe.add_camera({"name": safe_name(camera), "source": "push", "zones": []})
+        pipe.add_camera({"name": camera, "source": "push", "zones": []})
         cfgm.save(cfg)
     data = await request.body()
-    if not request.headers.get("content-type", "").startswith("image/"):
-        # O app do celular manda base64 (mais confiável que Blob no React Native); aceita data URL.
-        try:
-            data = base64.b64decode(data.split(b",", 1)[-1], validate=False)
-        except Exception:
-            raise HTTPException(400, "base64 inválido")
-    if not pipe.cams[camera].set_jpeg(data):
+    is_image = request.headers.get("content-type", "").startswith("image/")
+    cam = pipe.cams.get(camera)
+    if cam is None:
+        raise HTTPException(404)
+
+    def decode() -> bool:
+        raw = data
+        if not is_image:
+            # O app do celular manda base64 (mais confiável que Blob no React Native); aceita data URL.
+            raw = base64.b64decode(raw.split(b",", 1)[-1], validate=False)
+        return cam.set_jpeg(raw)
+
+    # Decodificar o JPEG na thread do servidor travaria todas as outras requisições enquanto isso.
+    try:
+        ok = await run_in_threadpool(decode)
+    except binascii.Error:
+        raise HTTPException(400, "base64 inválido")
+    if not ok:
         raise HTTPException(400, f"JPEG inválido ({len(data)} bytes)")
     return {"ok": True}
 
@@ -253,8 +259,15 @@ def _save_cat_image(name: str, img) -> int:
 
 
 @app.post("/api/cats/{name}/photos", dependencies=[api])
-async def add_photo(name: str, photo: UploadFile = File(...)):
-    img = cv2.imdecode(np.frombuffer(await photo.read(), np.uint8), cv2.IMREAD_COLOR)
+def add_photo(name: str, photo: UploadFile = File(...)):
+    # Síncrona (roda numa thread): a detecção espera a vez da IA, e numa função async isso
+    # travava o servidor inteiro, inclusive a imagem das câmeras nos apps.
+    safe_name(name)
+    data = photo.file.read()
+    try:
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR) if data else None
+    except cv2.error:
+        img = None
     if img is None:
         raise HTTPException(400, "imagem inválida")
     # Se a foto tem um gato, recorta; senão usa inteira.
@@ -315,7 +328,9 @@ def lan_addresses() -> list[str]:
         if name.startswith(("lo", "docker", "virbr", "br-", "veth")):
             continue
         for a in addrs:
-            if a.family == socket.AF_INET and not a.address.startswith("127.") and a.address not in ips:
+            # 169.254.x.x: endereço que o Windows inventa numa placa sem rede; o celular não chega nele.
+            if (a.family == socket.AF_INET and not a.address.startswith(("127.", "169.254."))
+                    and a.address not in ips):
                 ips.append(a.address)
     return [f"http://{ip}:{current_port()}" for ip in ips]
 
@@ -489,7 +504,8 @@ def restore(backup: UploadFile = File(...), settings: bool = Form(True)):
             with dbm._lock:
                 src.backup(pipe.db)
             src.close()
-            dbm.migrate(pipe.db)
+            with dbm._lock:
+                dbm.migrate(pipe.db)
             _replace_dir(GALLERY, b["cats"])
             _replace_dir(pipe.photo_dir, b["snapshots"])
             pipe.identifier.load(cfg["gallery"])

@@ -32,6 +32,8 @@ Para levar gatos e histórico: backup .zip pela aba Servidor e `./install.sh --r
 ## Passo a passo
 1. Abra o painel (web, celular ou PC) e informe o token.
 2. **Câmeras → Adicionar**: `rtsp://...`, `http://IP:8080/video` (app *IP Webcam*), `0` (USB) ou `push` (celular com o app Catwatch, aba Câmera).
+   O RTSP é lido por TCP (por UDP, pacotes perdidos borram ou travam a imagem); para outra
+   opção, defina `OPENCV_FFMPEG_CAPTURE_OPTIONS` antes de abrir o servidor.
 3. **Editar zonas**: desenhe sobre a imagem a caixa de areia, o comedouro e o bebedouro.
 4. **Gatos**: cadastre cada gato com 15–30 fotos (ou "foto da câmera" com o gato à vista).
 5. As visitas aparecem em *Hoje* e *Histórico*. Se errar o gato, corrija em *Histórico → trocar gato*.
