@@ -11,13 +11,24 @@ export default function History({ api }: { api: Api }) {
   const [rows, setRows] = useState<Visit[]>([]);
   const [zoom, setZoom] = useState<string | null>(null);
   const [kind, setKind] = useState<string>('');
-  const load = async () => setRows(await api.recent(200));
+  const [cats, setCats] = useState<string[]>([]);
+  const load = async () => {
+    setRows(await api.recent(200));
+    setCats((await api.cats()).map(c => c.name));
+  };
   usePoll(load, 10000, [api]);
 
-  async function fix(v: Visit) {
-    const cats = (await api.cats()).map(c => c.name);
+  // Confirmar ou trocar o gato ensina o servidor: as fotos da visita entram no cadastro do gato.
+  async function assign(v: Visit, cat: string) {
+    try {
+      const r = await api.fixVisit(v.id, cat);
+      if (r.learned) Alert.alert(`Visita de ${cat}`, `${r.learned} fotos desta câmera entraram no cadastro de ${cat}.`);
+      await load();
+    } catch (e: any) { Alert.alert('Não deu certo', e.message); }
+  }
+  function fix(v: Visit) {
     Alert.alert('Qual gato era?', `${KIND_NAME[v.kind]}, ${pt(new Date(v.start * 1000), { hour: '2-digit', minute: '2-digit' })}`, [
-      ...cats.map(c => ({ text: c, onPress: () => api.fixVisit(v.id, c).then(load) })),
+      ...cats.map(c => ({ text: c, onPress: () => assign(v, c) })),
       { text: 'Cancelar', style: 'cancel' as const },
     ]);
   }
@@ -34,7 +45,7 @@ export default function History({ api }: { api: Api }) {
         style={s.screen} contentContainerStyle={s.content} data={data} keyExtractor={v => String(v.id)}
         ListHeaderComponent={
           <View style={{ gap: T.s16 }}>
-            <Header title="Histórico" subtitle="Cada visita com a foto do momento. Errou o gato? Troque." />
+            <Header title="Histórico" subtitle="Cada visita com a foto do momento. Confirme as certas e troque as erradas: o Catwatch aprende com as fotos desta câmera." />
             <Chips value={kind} onChange={setKind}
               options={[{ value: '', label: 'Tudo' }, ...KINDS.map(k => ({ value: k, label: KIND_SHORT[k], color: kindColor(k) }))]} />
           </View>
@@ -75,7 +86,8 @@ export default function History({ api }: { api: Api }) {
                   <Txt v="caption" color={T.fog}>Visita registrada antes das fotos: sem certeza nem votos.</Txt>
                 )}
                 <View style={[s.row, { marginTop: T.s8 }]}>
-                  <Btn kind="ghost" icon="swap-horizontal" label="Trocar gato" onPress={() => fix(v)} />
+                  {cats.includes(v.cat) && <Btn kind="ghost" icon="check" label="Está certo" onPress={() => assign(v, v.cat)} />}
+                  <Btn kind="ghost" icon="swap-horizontal" label="Trocar gato" onPress={() => fix(v)} disabled={!cats.length} />
                   <Btn kind="danger" icon="delete-outline" label="Apagar" onPress={() => del(v)} />
                 </View>
               </View>

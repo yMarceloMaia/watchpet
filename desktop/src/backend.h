@@ -128,7 +128,8 @@ private:
     void nextUpload();
     void pollEvents();
     void refreshDone();
-    void finishAction(QNetworkReply *reply, const QString &okText);
+    // readBody: o corpo, se quem chama já leu a resposta.
+    void finishAction(QNetworkReply *reply, const QString &okText, const QByteArray &readBody = QByteArray());
     void send(const QString &method, const QString &path, const QByteArray &body = {}, const QString &okText = {});
     static QString enc(const QString &s) { return QString::fromUtf8(QUrl::toPercentEncoding(s)); }
 

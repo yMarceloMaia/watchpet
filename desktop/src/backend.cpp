@@ -36,13 +36,14 @@ QNetworkRequest Backend::request(const QString &path) const {
 QNetworkReply *Backend::get(const QString &path) { return m_net.get(request(path)); }
 
 // Mostra o motivo que o servidor deu ("detail"), senão o erro de rede.
-void Backend::finishAction(QNetworkReply *reply, const QString &okText) {
+void Backend::finishAction(QNetworkReply *reply, const QString &okText, const QByteArray &readBody) {
     reply->deleteLater();
     if (reply->error() == QNetworkReply::NoError) {
         if (!okText.isEmpty())
             emit message(okText, false);
     } else {
-        const QString detail = QJsonDocument::fromJson(reply->readAll()).object().value("detail").toString();
+        const QByteArray body = readBody.isNull() ? reply->readAll() : readBody;
+        const QString detail = QJsonDocument::fromJson(body).object().value("detail").toString();
         emit message(detail.isEmpty() ? reply->errorString() : detail, true);
     }
     refresh();
@@ -220,8 +221,17 @@ QString Backend::photoUrl(int visitId) const {
 }
 
 void Backend::fixVisit(int id, const QString &cat) {
-    send("PATCH", QString("/api/visits/%1").arg(id), QJsonDocument(QJsonObject{{"cat", cat}}).toJson(),
-         tr("Visita atribuída a %1").arg(cat));
+    auto req = request(QString("/api/visits/%1").arg(id));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setTransferTimeout(60000);  // o servidor analisa as fotos da visita para aprender com elas
+    auto *reply = m_net.sendCustomRequest(req, "PATCH", QJsonDocument(QJsonObject{{"cat", cat}}).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, cat] {
+        const QByteArray body = reply->readAll();
+        const int learned = QJsonDocument::fromJson(body).object().value("learned").toInt();
+        // Sem erro: a mensagem diz se o Catwatch aprendeu com as fotos da câmera.
+        finishAction(reply, learned > 0 ? tr("Visita de %1. %2 fotos desta câmera entraram no cadastro de %1.").arg(cat).arg(learned)
+                                        : tr("Visita de %1").arg(cat), body);
+    });
 }
 
 void Backend::deleteVisit(int id) { send("DELETE", QString("/api/visits/%1").arg(id)); }

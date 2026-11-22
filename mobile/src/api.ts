@@ -63,7 +63,9 @@ export class Api {
   stats = (days = 7) => this.req<Stat[]>(`/api/stats?days=${days}`);
   recent = (limit = 100) => this.req<Visit[]>(`/api/recent?limit=${limit}`);
   visitPhoto = (id: number) => this.url(`/api/visits/${id}/photo`);
-  fixVisit = (id: number, cat: string) => this.req(`/api/visits/${id}`, this.json('PATCH', { cat }));
+  /** learned: fotos da visita que entraram no cadastro do gato (o servidor aprende com a câmera). */
+  fixVisit = (id: number, cat: string) =>
+    this.req<{ ok: boolean; learned?: number }>(`/api/visits/${id}`, this.json('PATCH', { cat }), 60000);
   delVisit = (id: number) => this.req(`/api/visits/${id}`, { method: 'DELETE' });
 
   cameras = () => this.req<Cam[]>('/api/cameras');

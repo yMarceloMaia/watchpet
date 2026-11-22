@@ -25,7 +25,8 @@ ListView {
         spacing: T.s16
         PageHeader {
             title: "Histórico"
-            subtitle: "Cada visita com a foto do momento e o quanto o Catwatch tinha certeza do gato. Errou? Troque o gato."
+            subtitle: "Cada visita com a foto do momento e o quanto o Catwatch tinha certeza do gato. Confirme as certas e troque as erradas: "
+                      + "as fotos da visita entram no cadastro do gato, e ele passa a reconhecer melhor por esta câmera."
         }
         RowLayout {
             spacing: T.s8
@@ -142,6 +143,11 @@ ListView {
                 Layout.alignment: Qt.AlignTop
                 Layout.fillWidth: false
                 Layout.preferredWidth: 144
+                ActionButton { Layout.fillWidth: true; text: "Está certo"; icon_: "check-circle"
+                    ToolTip.visible: hovered; ToolTip.delay: 500
+                    ToolTip.text: "É mesmo " + row.v.cat + ": as fotos da visita entram no cadastro dele"
+                    visible: backend.cats.some(c => c.name === row.v.cat)
+                    onClicked: backend.fixVisit(row.v.id, row.v.cat) }
                 ActionButton { Layout.fillWidth: true; text: "Trocar gato"; icon_: "swap-horizontal"; enabled: backend.cats.length > 0; onClicked: page.app.fixVisit(row.v.id) }
                 ActionButton { Layout.fillWidth: true; text: "Apagar"; icon_: "delete-outline"; tint: T.alert
                     onClicked: { const id = row.v.id; page.app.ask("Apagar essa visita?", () => backend.deleteVisit(id)) } }
