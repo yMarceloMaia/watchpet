@@ -31,14 +31,25 @@ export class Api {
   constructor(public c: Conn, private onUnauthorized?: () => void) {}
   url = (path: string) => `${this.c.url}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(this.c.token)}`;
 
-  async req<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const r = await fetch(this.c.url + path, { ...init, headers: { 'X-Token': this.c.token, ...(init.headers || {}) } });
-    if (r.status === 401 && this.onUnauthorized) this.onUnauthorized();
-    if (!r.ok) {
-      let d = ''; try { d = (await r.json()).detail; } catch {}
-      throw new Error(d || `Erro ${r.status}`);
+  /** timeoutMs: o fetch do React Native não tem limite; com o Wi-Fi caindo, a requisição ficava
+   *  pendurada para sempre e a tela parava de atualizar. */
+  async req<T>(path: string, init: RequestInit = {}, timeoutMs = 20000): Promise<T> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(this.c.url + path, { ...init, signal: ctrl.signal, headers: { 'X-Token': this.c.token, ...(init.headers || {}) } });
+      if (r.status === 401 && this.onUnauthorized) this.onUnauthorized();
+      if (!r.ok) {
+        let d = ''; try { d = (await r.json()).detail; } catch {}
+        throw new Error(d || `Erro ${r.status}`);
+      }
+      return await r.json();
+    } catch (e: any) {
+      if (ctrl.signal.aborted) throw new Error('o servidor demorou demais para responder');
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    return r.json();
   }
   json = (method: string, body: unknown) =>
     ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -67,11 +78,11 @@ export class Api {
   thumb = (n: string, bust = 0) => this.url(`/api/cats/${encodeURIComponent(n)}/thumb?b=${bust}`);
   delCat = (n: string) => this.req(`/api/cats/${encodeURIComponent(n)}`, { method: 'DELETE' });
   catFromCamera = (n: string, cam: string) =>
-    this.req(`/api/cats/${encodeURIComponent(n)}/from-camera/${encodeURIComponent(cam)}`, { method: 'POST' });
+    this.req(`/api/cats/${encodeURIComponent(n)}/from-camera/${encodeURIComponent(cam)}`, { method: 'POST' }, 60000);
   async addPhoto(n: string, uri: string) {
     const fd = new FormData();
     fd.append('photo', { uri, name: 'photo.jpg', type: 'image/jpeg' } as any);
-    return this.req(`/api/cats/${encodeURIComponent(n)}/photos`, { method: 'POST', body: fd });
+    return this.req(`/api/cats/${encodeURIComponent(n)}/photos`, { method: 'POST', body: fd }, 120000);
   }
 }
 

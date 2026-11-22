@@ -200,13 +200,19 @@ export const pt = (d: Date, opts: Intl.DateTimeFormatOptions) => d.toLocaleStrin
 export const hhmm = (ts: number) => pt(new Date(ts * 1000), { hour: '2-digit', minute: '2-digit' });
 export const dec = (n: number, digits = 2) => n.toFixed(digits).replace('.', ',');
 
-/** Atualiza `fn` a cada `ms` enquanto o componente estiver montado. */
+/** Atualiza `fn` a cada `ms` enquanto o componente estiver montado. Com o servidor lento, não
+ *  começa outra rodada antes de a anterior terminar (elas se acumulavam). */
 export function usePoll(fn: () => Promise<void>, ms: number, deps: unknown[] = []) {
   React.useEffect(() => {
     let alive = true;
-    const run = () => fn().catch(() => {});
+    let busy = false;
+    const run = () => {
+      if (!alive || busy) return;
+      busy = true;
+      fn().catch(() => {}).finally(() => { busy = false; });
+    };
     run();
-    const id = setInterval(() => alive && run(), ms);
+    const id = setInterval(run, ms);
     return () => { alive = false; clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
