@@ -110,3 +110,81 @@ def test_keeps_best_frame_and_scores():
 def test_numbers_apply_to_every_kind():
     t = VisitTracker(min_seconds=3, gap_seconds=10)
     assert t.min_seconds == {"litter": 3, "food": 3, "water": 3}
+
+
+# ---------- decisão pela visita inteira ----------
+
+def scores(best, best_sim=0.60, other_sim=0.55):
+    """Notas de um quadro: `best` é o mais parecido, mas abaixo do limite de um quadro só."""
+    out = {c: other_sim for c in ("Leona", "Sushi", "Tom", "Mia")}
+    out[best] = best_sim
+    return out
+
+
+def feed(t, frames, cat=None, start=0.0, step=1.0):
+    for i, sc in enumerate(frames):
+        t.update("cam", "caixa", cat, start + i * step, "litter", max(sc.values()), None, 0.8, sc)
+
+
+def test_low_scores_still_name_the_cat_over_the_whole_visit():
+    # Câmera de cima e cadastro com fotos de lado: nenhum quadro passa de 0,70, mas a Leona
+    # é a mais parecida em quase todos. Antes, a visita ficava "desconhecido".
+    t = VisitTracker(threshold=0.70)
+    frames = [scores("Leona")] * 60 + [scores("Sushi")] * 10 + [scores("Tom")] * 5
+    feed(t, frames)
+    (v,) = t.flush(1000)
+    assert v["cat"] == "Leona"
+    assert v["votes"] == {"Leona": 60, "Sushi": 10, "Tom": 5}
+    assert abs(v["score"] - (60 * 0.60 + 15 * 0.55) / 75) < 1e-6   # nota média da Leona
+
+
+def test_split_evidence_stays_unknown():
+    t = VisitTracker(threshold=0.70)
+    feed(t, [scores("Leona"), scores("Sushi")] * 19)          # o mesmo gato, ora parece um, ora outro
+    (v,) = t.flush(1000)
+    assert v["cat"] == "desconhecido"
+
+
+def test_name_flipping_between_similar_cats_does_not_lose_the_visit():
+    # 20 s na caixa; o nome alterna em blocos de 6 s entre duas gatas parecidas. Antes a visita
+    # virava dois "gatos" de 10 s cada, abaixo dos 15 s mínimos, e sumia.
+    t = VisitTracker()
+    for i, now in enumerate(frames(100, 20)):
+        t.update("cam", "caixa", "Leona" if (now - 100) % 12 < 6 else "Morgana", now, "litter", 0.75)
+    out = t.flush(500)
+    assert len(out) == 1 and out[0]["presence"] > 19
+
+
+def test_two_cats_in_a_row_each_long_enough_are_two_visits():
+    t = VisitTracker(threshold=0.70)
+    feed(t, [scores("Leona")] * 20)                            # 20 s de Leona
+    feed(t, [scores("Sushi")] * 20, start=25.0)                # Sushi entra 5 s depois, 20 s
+    out = t.flush(1000)
+    assert sorted((v["cat"], round(v["presence"])) for v in out) == [("Leona", 19), ("Sushi", 19)]
+
+
+def test_far_from_everyone_stays_unknown():
+    # Gato de fora (ou não cadastrado): o "mais parecido" é sempre o mesmo, mas a nota é baixa demais.
+    t = VisitTracker(threshold=0.70)
+    feed(t, [scores("Leona", 0.40, 0.35)] * 40)
+    (v,) = t.flush(1000)
+    assert v["cat"] == "desconhecido"
+
+
+def test_whole_visit_overrides_a_single_lucky_frame():
+    # Um quadro passou do limite com o gato errado; os outros 40 apontam a Mia.
+    t = VisitTracker(threshold=0.70)
+    t.update("cam", "caixa", "Tom", 0.0, "litter", 0.72, None, 0.8, scores("Tom", 0.72, 0.5))
+    feed(t, [scores("Mia")] * 40, start=1.0)
+    (v,) = t.flush(1000)
+    assert v["cat"] == "Mia"
+
+
+def test_crops_are_kept_spread_over_the_visit():
+    t = VisitTracker(threshold=0.70)
+    for i in range(120):
+        t.update("cam", "caixa", None, float(i), "litter", 0.6, None, 0.8, scores("Leona"), crop=i)
+    (v,) = t.flush(1000)
+    crops = v["crops"]
+    assert 3 <= len(crops) <= 6
+    assert crops[0] == 0 and crops[-1] > 60                          # do começo ao fim, não só os primeiros

@@ -45,8 +45,25 @@ real (quadros seguidos com o gato), então passar pela zona não conta. A visita
 depois de um tempo sem ver o gato: 30 s na caixa (ele some ao se agachar), 15 s na
 comida e 10 s na água.
 
-Quadros em que a identificação falha ("desconhecido") e trocas raras de nome contam para
-o gato que lidera a visita. Dois gatos juntos na mesma imagem são contados cada um.
+Quadros em que a identificação falha ("desconhecido") e trocas de nome contam para o gato
+que lidera a visita: um nome que oscila entre dois gatos parecidos não parte a visita (um
+trecho curto demais para ser visita sozinho se junta ao vizinho). Dois gatos seguidos, cada
+um com o tempo mínimo, são duas visitas; dois gatos juntos na mesma imagem também.
+
+O detector procura gatos na resolução da câmera (até 1280 px de lado). Na resolução padrão
+dele (640), um gato pequeno numa câmera HD vista de cima quase nunca era achado.
+
+## Quem é o gato
+Cada quadro compara o recorte do gato com as fotos do cadastro, mas o nome sai da visita
+inteira: o gato que foi o mais parecido em pelo menos metade dos quadros, com folga sobre o
+segundo, leva a visita, mesmo que nenhum quadro sozinho tenha passado do limite de
+similaridade. Os votos no histórico contam em quantos quadros cada gato foi o mais parecido.
+
+Fotos do cadastro de outro ângulo (de lado, com o celular) comparadas com uma câmera vista de
+cima dão notas baixas. No histórico, **Está certo** e **Trocar gato** ensinam o servidor: até 6
+recortes do gato naquela visita entram no cadastro dele (no máximo 40 por gato, os mais
+novos). Algumas confirmações por gato bastam para a câmera de cima reconhecê-los bem. Os
+recortes de visitas não confirmadas são apagados depois de 30 dias.
 
 **Em qual zona:** os pés do gato dentro do polígono, ou boa parte da metade de baixo dele
 (câmera vista de cima). Cada gato conta em uma zona só por vez; com comedouro e bebedouro

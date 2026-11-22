@@ -113,3 +113,5 @@ class Monitor:
         if now - self._last_prune > 3600:
             self._last_prune = now
             dbm.prune_events(self.pipe.db, now - 60 * 86400)
+            if hasattr(self.pipe, "prune_learn"):
+                self.pipe.prune_learn(now - 30 * 86400)

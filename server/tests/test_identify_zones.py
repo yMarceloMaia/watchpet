@@ -3,7 +3,7 @@ import threading
 import numpy as np
 
 from catwatch import overlay
-from catwatch.vision import UNKNOWN, CatIdentifier, pick
+from catwatch.vision import UNKNOWN, CatIdentifier, input_size, pick
 from catwatch.visits import VisitTracker
 from catwatch.zones import ZoneMap
 
@@ -112,3 +112,10 @@ def test_overlay_draws_zones_and_labels():
     gray = np.array([90, 90, 90], float)
     assert tint(560, 400, gray) > tint(150, 400, gray)
     assert np.linalg.norm(frame[290, 342].astype(float) - water) > 0   # contorno/caixa desenhados
+
+
+def test_detection_input_follows_the_camera():
+    assert input_size(480, 640) == 640          # câmera pequena: como antes
+    assert input_size(720, 1280) == 1280        # gato pequeno numa câmera HD: analisada inteira
+    assert input_size(1080, 1920) == 1280       # limite, por causa do processador
+    assert input_size(720, 1000) == 1024        # múltiplo de 32

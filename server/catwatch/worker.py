@@ -1,4 +1,5 @@
 import json
+import shutil
 import threading
 import time
 import traceback
@@ -11,7 +12,7 @@ from . import db as dbm
 from . import overlay
 from .camera import Camera
 from .config import visit_rules
-from .vision import UNKNOWN
+from .vision import UNKNOWN, decide
 from .visits import HOLD_SECONDS, VisitTracker
 from .zones import ZoneMap
 
@@ -24,6 +25,9 @@ class Pipeline:
         self.cfg, self.detector, self.identifier = cfg, detector, identifier
         self.db = dbm.connect(cfg["db"])
         self.photo_dir = Path(cfg["db"]).parent / "snapshots"
+        # Recortes do gato em cada visita, para aprender com a câmera quando o usuário confirma
+        # ou corrige o gato (ficam 30 dias; o monitor apaga os antigos).
+        self.learn_dir = Path(cfg["db"]).parent / "learn"
         self.tracker = VisitTracker(*visit_rules(cfg))
         self.cams: dict[str, Camera] = {}
         self.last_annotated: dict[str, tuple] = {}  # câmera -> (quadro anotado, hora do quadro)
@@ -89,6 +93,7 @@ class Pipeline:
     def _step(self, cam, ccfg, period, state):
         # Sem quadros vizinhos a menos de 1 período, a presença não somaria nada.
         self.tracker.hold = max(HOLD_SECONDS, 3 * period)
+        self.tracker.threshold = self.identifier.threshold
         frame, now = cam.latest
         if frame is None or now == state["seen_ts"]:
             self._save_flush(time.time())
@@ -105,12 +110,13 @@ class Pipeline:
                 zone = zmap.zone_for(box, zones, w, h)   # no máximo uma zona por gato
                 name, sim = None, 0.0
                 if zone:
-                    crop = frame[max(y1, 0):y2, max(x1, 0):x2]
-                    if crop.size:
-                        name, sim = self.identifier(crop)
+                    # Cópia: as marcações são desenhadas no quadro logo abaixo.
+                    crop = frame[max(y1, 0):y2, max(x1, 0):x2].copy()
+                    scores = self.identifier.scores(crop) if crop.size else {}
+                    name, sim = decide(scores, self.identifier.threshold)
                     if name == UNKNOWN:
                         name = None
-                    updates.append((zone, name, sim, conf))
+                    updates.append((zone, name, sim, conf, scores, crop if scores else None))
                 cats.append((box, name, sim, zone is not None))
             ms = (time.perf_counter() - t0) * 1000
             self.infer_ms = ms if not self.frames_analyzed else self.infer_ms * 0.9 + ms * 0.1
@@ -118,8 +124,8 @@ class Pipeline:
         stamp = f"{cam.name}  {time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(now))}"
         overlay.draw(frame, zones, {z["name"] for z, *_ in updates}, cats, stamp)
         # O quadro anotado vira a foto da visita (o tracker guarda o melhor).
-        for z, name, sim, conf in updates:
-            self.tracker.update(cam.name, z["name"], name, now, z["kind"], sim, frame, conf)
+        for z, name, sim, conf, scores, crop in updates:
+            self.tracker.update(cam.name, z["name"], name, now, z["kind"], sim, frame, conf, scores, crop)
         if self.cams.get(cam.name) is cam:  # câmera removida durante a análise: não ressuscita a imagem
             self.last_annotated[cam.name] = (frame, now)
         self._save_flush(now)
@@ -161,16 +167,31 @@ class Pipeline:
 
     def _save_visit(self, v):
         frame = v.pop("frame")
+        crops = v.pop("crops", [])
         vid = dbm.add_visit(self.db, v["cat"], v["kind"] or "litter", v["zone"], v["camera"],
                             v["start"], v["end"], v["score"], v["conf"], v["frames"],
                             json.dumps(v["votes"], ensure_ascii=False), int(frame is not None), v["presence"])
         if frame is not None:
             self.save_photo(vid, frame)
+        if crops:
+            d = self.learn_dir / str(vid)
+            d.mkdir(parents=True, exist_ok=True)
+            for i, crop in enumerate(crops):
+                cv2.imwrite(str(d / f"{i}.jpg"), crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
         kind_name = {"litter": "caixa de areia", "food": "comida", "water": "água"}.get(v["kind"], v["kind"])
         dbm.add_event(self.db, "visit", f"{v['cat']} → {v['zone']} ({kind_name}), ficou {v['presence']:.0f} s",
                       cat=v["cat"], camera=v["camera"], visit_id=vid, ts=v["end"])
         print(f"[visita] {v['cat']} -> {v['zone']} ({v['kind']}) ficou {v['presence']:.0f}s de {v['end']-v['start']:.0f}s "
               f"similaridade={v['score'] or 0:.2f} quadros={v['frames']}", flush=True)
+
+    def prune_learn(self, before: float) -> None:
+        """Apaga os recortes de visitas antigas que ninguém confirmou nem corrigiu."""
+        for d in self.learn_dir.iterdir() if self.learn_dir.exists() else []:
+            try:
+                if d.is_dir() and d.stat().st_mtime < before:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
 
     def photo_path(self, vid: int) -> Path:
         return self.photo_dir / f"{vid}.jpg"

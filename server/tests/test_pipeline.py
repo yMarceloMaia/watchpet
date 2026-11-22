@@ -33,8 +33,14 @@ class FlakyDetector:
         return [(w // 4, h // 4, 3 * w // 4, 3 * h // 4, 0.9)]
 
 
-def identifier(crop):
-    return "Leona", 0.9
+class FakeIdentifier:
+    threshold = 0.7
+
+    def scores(self, crop):
+        return {"Leona": 0.9, "Sushi": 0.4}
+
+
+identifier = FakeIdentifier()
 
 
 def push_frame(cam, value=80):

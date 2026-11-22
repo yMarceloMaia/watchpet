@@ -120,11 +120,62 @@ class CatBody(BaseModel):
     cat: str
 
 
+# Fotos aprendidas de uma visita: <hora>-v<visita>-<n>.jpg na pasta do gato.
+LEARNED = re.compile(r"\d+-v\d+-\d+")
+MAX_LEARNED = 40   # por gato, as mais novas: a câmera muda (luz, posição) e a galeria acompanha
+
+
+def _learned_from(vid: int) -> list[Path]:
+    return list(GALLERY.glob(f"*/*-v{vid}-*.jpg"))
+
+
+def _forget(paths: list[Path]):
+    for f in paths:
+        f.unlink(missing_ok=True)
+    pipe.identifier.remove_paths(paths)
+
+
+def learn_from_visit(vid: int, cat: str) -> int:
+    """Põe os recortes do gato nesta visita na galeria de `cat` (o usuário disse quem era).
+
+    São fotos da própria câmera, do mesmo ângulo e luz: é o que mais aproxima a comparação
+    quando o cadastro foi feito com fotos de outro ângulo (por exemplo, câmera vista de cima).
+    Se a visita já tinha ensinado outro gato, as fotos saem de lá. Devolve quantas entraram.
+    """
+    src = pipe.learn_dir / str(vid)
+    crops = sorted(src.glob("*.jpg")) if src.is_dir() else []
+    target = GALLERY / cat
+    with pipe._infer:
+        old = _learned_from(vid)
+        if old and all(f.parent.name == cat for f in old):
+            return 0                                  # já ensinou este gato
+        _forget(old)
+        if not target.is_dir() or not crops:          # "desconhecido", nome fora do cadastro
+            return 0
+        stamp, added = int(time.time() * 1000), 0
+        for i, f in enumerate(crops):
+            img = cv2.imread(str(f))
+            if img is None:
+                continue
+            dst = target / f"{stamp}-v{vid}-{i}.jpg"
+            shutil.copyfile(f, dst)
+            pipe.identifier.add(cat, img, str(dst))
+            added += 1
+        learned = sorted(f for f in target.glob("*.jpg") if LEARNED.fullmatch(f.stem))
+        _forget(learned[:-MAX_LEARNED])
+    return added
+
+
 @app.patch("/api/visits/{vid}", dependencies=[api])
 def fix_visit(vid: int, body: CatBody):
-    if not dbm.set_cat(pipe.db, vid, safe_name(body.cat)):
+    """Troca (ou confirma) o gato da visita e aprende com as fotos dela."""
+    cat = safe_name(body.cat)
+    if not dbm.set_cat(pipe.db, vid, cat):
         raise HTTPException(404)
-    return {"ok": True}
+    learned = learn_from_visit(vid, cat)
+    if learned:
+        dbm.add_event(pipe.db, "server", f"{learned} fotos da câmera adicionadas a {cat} (visita {vid})", cat=cat)
+    return {"ok": True, "learned": learned}
 
 
 @app.delete("/api/visits/{vid}", dependencies=[api])
@@ -132,6 +183,9 @@ def del_visit(vid: int):
     if not dbm.delete_visit(pipe.db, vid):
         raise HTTPException(404)
     pipe.photo_path(vid).unlink(missing_ok=True)
+    shutil.rmtree(pipe.learn_dir / str(vid), ignore_errors=True)
+    with pipe._infer:   # visita apagada (não era gato?): o que ela ensinou sai também
+        _forget(_learned_from(vid))
     return {"ok": True}
 
 
@@ -290,9 +344,11 @@ def photo_from_camera(name: str, camera: str):
 @app.get("/api/cats/{name}/thumb", dependencies=[api])
 def thumb(name: str):
     imgs = _imgs(GALLERY / safe_name(name))
+    # A miniatura é uma foto do cadastro; as aprendidas da câmera (de cima, pequenas) só se não houver outra.
+    own = [f for f in imgs if not LEARNED.fullmatch(f.stem)]
     if not imgs:
         raise HTTPException(404)
-    return FileResponse(imgs[-1])
+    return FileResponse((own or imgs)[-1])
 
 
 @app.delete("/api/cats/{name}", dependencies=[api])
@@ -508,6 +564,7 @@ def restore(backup: UploadFile = File(...), settings: bool = Form(True)):
                 dbm.migrate(pipe.db)
             _replace_dir(GALLERY, b["cats"])
             _replace_dir(pipe.photo_dir, b["snapshots"])
+            _replace_dir(pipe.learn_dir, None)   # recortes das visitas antigas não valem para as do backup
             pipe.identifier.load(cfg["gallery"])
         cameras = _restore_settings(b["config"]) if settings and b["config"] else None
 
