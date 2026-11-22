@@ -6,7 +6,7 @@
 #              liga o servidor, fecha o app à força, confere que o servidor fechou junto, desinstala
 #
 #   - Manual: aba Actions → "Windows" → Run workflow (os arquivos ficam nos artefatos).
-#   - Release: git tag v1.2.0 && git push --tags (instalador e .zip do servidor na página de releases).
+#   - Release: git tag v1.2.1 && git push --tags (instalador e .zip do servidor na página de releases).
 name: Windows
 
 on:

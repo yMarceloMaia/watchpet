@@ -11,5 +11,5 @@ RESOURCES += src/resources.qrc
 win32 {
     RC_ICONS = windows/catwatch.ico
     QMAKE_TARGET_DESCRIPTION = Catwatch
-    VERSION = 1.2.0
+    VERSION = 1.2.1
 }
